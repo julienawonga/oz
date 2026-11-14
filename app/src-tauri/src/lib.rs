@@ -1357,6 +1357,29 @@ type WsTx = SplitSink<WsStream, WsMessage>;
 type WsRx = SplitStream<WsStream>;
 static LIVE_TX: tokio::sync::Mutex<Option<WsTx>> = tokio::sync::Mutex::const_new(None);
 static LIVE_CONNECT_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+// chunks micro mis en mémoire pendant l'ouverture de session (zéro mot perdu)
+static MIC_PENDING: tokio::sync::Mutex<Vec<String>> = tokio::sync::Mutex::const_new(Vec::new());
+
+/// Vide le buffer micro vers la session Live (ordre préservé)
+async fn flush_mic_pending(app: &AppHandle) -> Result<(), String> {
+    let mut pending = MIC_PENDING.lock().await;
+    let queued: Vec<String> = std::mem::take(&mut *pending);
+    let mut guard = LIVE_TX.lock().await;
+    let Some(tx) = guard.as_mut() else {
+        // session toujours absente : on remet les chunks en attente
+        *pending = queued;
+        return Ok(());
+    };
+    for d in queued {
+        let msg = serde_json::json!({
+            "realtimeInput": {"audio": {"mimeType": "audio/pcm;rate=16000", "data": d}}
+        });
+        tx.send(WsMessage::Text(msg.to_string()))
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
 
 /// Émet un événement vocal au frontend (audio, reset, erreur, transcription)
 fn voice_emit(app: &AppHandle, event: &str, payload: &str) {
@@ -1547,7 +1570,17 @@ async fn mic_chunk(app: AppHandle, data: String) -> Result<(), String> {
             return Err("Pas de clé Gemini dans le frigo 🍽️".into());
         }
     }
-    ensure_live_session(&app, &gemini_key_from_state(&app).await).await?; // ouvre la session si absente
+    // session prête ? → envoie direct. Sinon → bufferise (zéro mot perdu)
+    {
+        let guard = LIVE_TX.lock().await;
+        if guard.is_none() {
+            MIC_PENDING.lock().await.push(data);
+            ensure_live_session(&app, &gemini_key_from_state(&app).await).await?;
+            flush_mic_pending(&app).await?;
+            return Ok(());
+        }
+    }
+    flush_mic_pending(&app).await?; // rattrape d'éventuels chunks en attente
     let mut guard = LIVE_TX.lock().await;
     let Some(tx) = guard.as_mut() else {
         return Err("Gemini Live : session absente".into());
@@ -1568,6 +1601,7 @@ async fn gemini_key_from_state(app: &AppHandle) -> String {
 
 #[tauri::command]
 async fn mic_end(app: AppHandle) -> Result<(), String> {
+    flush_mic_pending(&app).await?;
     let mut guard = LIVE_TX.lock().await;
     let Some(tx) = guard.as_mut() else { return Ok(()) };
     let msg = serde_json::json!({"realtimeInput": {"audioStreamEnd": true}});
