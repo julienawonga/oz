@@ -136,11 +136,18 @@ window.addEventListener("pointerdown", () => ensureAudio());
 window.addEventListener("keydown", () => ensureAudio());
 
 let nextAudioTime = 0;
+let nidSpeaking = false; // true pendant que la voix de Nid joue
+let nidSpeakTimer = 0;
 
 void listen<string>("nid://voice-reset", () => (nextAudioTime = 0));
 void listen<string>("nid://voice-audio", (e) => playPcmChunk(e.payload));
 void listen<string>("nid://voice-error", (e) => {
   say("🎙️ " + String(e.payload).slice(0, 110), 8000);
+  nidSpeaking = false;
+});
+void listen<string>("nid://turn-complete", () => {
+  nidSpeaking = false;
+  nextAudioTime = 0;
 });
 void listen<string>("nid://user-text", (e) => {
   bubble.textContent = "🧑 " + e.payload;
@@ -167,6 +174,9 @@ function playPcmChunk(b64: string): void {
   if (nextAudioTime < now + 0.05) nextAudioTime = now + 0.05;
   src.start(nextAudioTime);
   nextAudioTime += buf.duration;
+  nidSpeaking = true;
+  clearTimeout(nidSpeakTimer);
+  nidSpeakTimer = window.setTimeout(() => (nidSpeaking = false), 600);
 }
 
 // ── 1. Clignement des yeux ───────────────────────────────────────────
@@ -371,7 +381,7 @@ async function startMicStream(): Promise<void> {
     micProcessor.onaudioprocess = (ev) => {
       if (!micRunning) return;
       // si Nid parle, on coupe le micro (anti-écho de sa propre voix)
-      if (nextAudioTime > micAudioCtx!.currentTime + 0.1) return;
+      if (nidSpeaking) return;
       const f32 = ev.inputBuffer.getChannelData(0);
       const ratio = micAudioCtx!.sampleRate / 16000;
       const outLen = Math.floor(f32.length / ratio);
