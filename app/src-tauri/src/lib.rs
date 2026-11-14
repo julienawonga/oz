@@ -1390,7 +1390,11 @@ async fn speak(
             .map_err(|e| e.to_string())?;
         let (mut ws, _) = tokio_tungstenite::connect_async(req)
             .await
-            .map_err(|e| format!("Gemini Live : connexion échouée ({e})"))?;
+            .map_err(|e| {
+                log_event(&app, "voice", &format!("live : connexion échouée : {e}"));
+                format!("Gemini Live : connexion échouée ({e})")
+            })?;
+        log_event(&app, "voice", "live : websocket connecté");
 
         // Setup : modèle, voix, modalités audio
         // NB : speechConfig n'existe plus dans le setup de gemini-3.8-live
@@ -1431,22 +1435,35 @@ async fn speak(
             .await
             .map_err(|e| e.to_string())?;
 
-        // Stream des chunks audio
+        // Stream des chunks audio (journal = console de debug)
+        let mut chunks = 0usize;
         loop {
             let msg = tokio::time::timeout(
                 std::time::Duration::from_secs(20),
                 ws.next(),
             )
-            .await
-            .map_err(|_| "Gemini Live : timeout génération".to_string())?;
+            .await;
+            let msg = match msg {
+                Ok(m) => m,
+                Err(_) => {
+                    log_event(&app, "voice", "live : timeout génération");
+                    return Err("Gemini Live : timeout génération".to_string());
+                }
+            };
             match msg {
                 Some(Ok(WsMessage::Text(t))) => {
                     let Ok(v) = serde_json::from_str::<serde_json::Value>(&t) else {
                         continue;
                     };
+                    if v.get("error").is_some() {
+                        let detail = v["error"]["message"].as_str().unwrap_or("?").to_string();
+                        log_event(&app, "voice", &format!("live : erreur serveur : {detail}"));
+                        return Err(format!("Gemini Live : {detail}"));
+                    }
                     if let Some(parts) = v["serverContent"]["modelTurn"]["parts"].as_array() {
                         for part in parts {
                             if let Some(d) = part["inlineData"]["data"].as_str() {
+                                chunks += 1;
                                 let _ = on_chunk.send(d.to_string());
                             }
                         }
@@ -1456,10 +1473,14 @@ async fn speak(
                     }
                 }
                 Some(Ok(_)) => continue,
-                Some(Err(e)) => return Err(e.to_string()),
+                Some(Err(e)) => {
+                    log_event(&app, "voice", &format!("live : erreur ws : {e}"));
+                    return Err(e.to_string());
+                }
                 None => break,
             }
         }
+        log_event(&app, "voice", &format!("live : {} chunk(s) audio reçus", chunks));
         return Ok(());
     }
 

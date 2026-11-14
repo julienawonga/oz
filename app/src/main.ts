@@ -292,7 +292,9 @@ async function converse(text: string): Promise<void> {
       if (b64 === "__RESET__") nextAudioTime = 0;
       else playPcmChunk(b64);
     };
-    void invoke("speak", { text: reply, onChunk: voiceChan }).catch(() => {});
+    invoke("speak", { text: reply, onChunk: voiceChan }).catch((err) => {
+      say("🎙️ Erreur voix : " + String(err).slice(0, 110), 8000);
+    });
   } catch (err) {
     say(String(err).slice(0, 90), 6000);
   } finally {
