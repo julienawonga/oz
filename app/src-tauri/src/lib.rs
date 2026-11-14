@@ -1349,6 +1349,171 @@ fn wav_header(data_len: u32, sample_rate: u32) -> Vec<u8> {
     h
 }
 
+type WsStream = tokio_tungstenite::WebSocketStream<
+    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+>;
+static LIVE_WS: tokio::sync::Mutex<Option<WsStream>> = tokio::sync::Mutex::const_new(None);
+
+/// Ouvre la session Gemini Live si absente (persistante entre les réponses).
+async fn ensure_live_session(app: &AppHandle, key: &str) -> Result<(), String> {
+    let mut guard = LIVE_WS.lock().await;
+    if guard.is_some() {
+        return Ok(());
+    }
+    let url = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    let mut req = url
+        .into_client_request()
+        .map_err(|e| format!("requête invalide ({e})"))?;
+    req.headers_mut().insert(
+        "x-goog-api-key",
+        tokio_tungstenite::tungstenite::http::HeaderValue::from_str(key)
+            .map_err(|e| e.to_string())?,
+    );
+    let (mut ws, _) = tokio_tungstenite::connect_async(req)
+        .await
+        .map_err(|e| {
+            log_event(app, "voice", &format!("live : connexion échouée : {e}"));
+            format!("Gemini Live : connexion échouée ({e})")
+        })?;
+    log_event(app, "voice", "live : websocket connecté");
+
+    // setup — speechConfig n'existe plus dans gemini-3.8-live
+    let setup = serde_json::json!({
+        "setup": {
+            "model": "models/gemini-3.8-live",
+            "generationConfig": {"responseModalities": ["AUDIO"]}
+        }
+    });
+    ws.send(WsMessage::Text(setup.to_string()))
+        .await
+        .map_err(|e| e.to_string())?;
+    log_event(app, "voice", "live : setup envoyé");
+
+    // setupComplete peut arriver en frame TEXT ou BINARY
+    loop {
+        let msg = tokio::time::timeout(std::time::Duration::from_secs(10), ws.next()).await;
+        let msg = match msg {
+            Ok(m) => m,
+            Err(_) => return Err("Gemini Live : timeout setup".into()),
+        };
+        match msg {
+            Some(Ok(WsMessage::Text(t))) => {
+                log_event(app, "voice", &format!("live : TEXT {}", t.chars().take(100).collect::<String>()));
+                if t.contains("setupComplete") {
+                    *guard = Some(ws);
+                    return Ok(());
+                }
+            }
+            Some(Ok(WsMessage::Binary(b))) => {
+                let text = String::from_utf8_lossy(&b).to_string();
+                log_event(app, "voice", &format!("live : BIN {}", text.chars().take(100).collect::<String>()));
+                if text.contains("setupComplete") {
+                    *guard = Some(ws);
+                    return Ok(());
+                }
+            }
+            Some(Ok(WsMessage::Ping(p))) => {
+                let _ = ws.send(WsMessage::Pong(p));
+            }
+            Some(Ok(_)) => {}
+            Some(Err(e)) => return Err(e.to_string()),
+            None => return Err("Gemini Live : connexion fermée (setup)".into()),
+        }
+    }
+}
+
+async fn live_turn(
+    app: &AppHandle,
+    text: &str,
+    on_chunk: &tauri::ipc::Channel<String>,
+) -> Result<(), String> {
+    let mut guard = LIVE_WS.lock().await;
+    let ws = guard.as_mut().ok_or("Gemini Live : session absente")?;
+
+    let turn = serde_json::json!({
+        "clientContent": {
+            "turns": [{"role": "user", "parts": [{"text": text}]}],
+            "turnComplete": true
+        }
+    });
+    ws.send(WsMessage::Text(turn.to_string()))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Google mélange TEXT et BINARY frames — on traite les deux
+    let mut chunks = 0usize;
+    loop {
+        let msg = tokio::time::timeout(std::time::Duration::from_secs(20), ws.next()).await;
+        let msg = match msg {
+            Ok(m) => m,
+            Err(_) => {
+                log_event(app, "voice", "live : timeout génération");
+                return Err("Gemini Live : timeout génération".into());
+            }
+        };
+        match msg {
+            Some(Ok(WsMessage::Text(t))) => {
+                let Ok(v) = serde_json::from_str::<serde_json::Value>(&t) else { continue };
+                if v.get("error").is_some() {
+                    let detail = v["error"]["message"].as_str().unwrap_or("?").to_string();
+                    return Err(format!("Gemini Live : {detail}"));
+                }
+                if let Some(parts) = v["serverContent"]["modelTurn"]["parts"].as_array() {
+                    for part in parts {
+                        if let Some(d) = part["inlineData"]["data"].as_str() {
+                            chunks += 1;
+                            let _ = on_chunk.send(d.to_string());
+                        }
+                    }
+                }
+                if v["serverContent"]["turnComplete"].as_bool() == Some(true) {
+                    break;
+                }
+            }
+            Some(Ok(WsMessage::Binary(b))) => {
+                let text = String::from_utf8_lossy(&b).to_string();
+                match serde_json::from_str::<serde_json::Value>(&text) {
+                    Ok(v) => {
+                        if let Some(parts) = v["serverContent"]["modelTurn"]["parts"].as_array() {
+                            for part in parts {
+                                if let Some(d) = part["inlineData"]["data"].as_str() {
+                                    chunks += 1;
+                                    let _ = on_chunk.send(d.to_string());
+                                }
+                            }
+                        }
+                        if v["serverContent"]["turnComplete"].as_bool() == Some(true) {
+                            break;
+                        }
+                    }
+                    Err(_) => {
+                        // audio brut : on l'envoie encodé
+                        use base64::Engine as _;
+                        chunks += 1;
+                        let _ = on_chunk.send(base64::engine::general_purpose::STANDARD.encode(&b));
+                    }
+                }
+            }
+            Some(Ok(WsMessage::Close(c))) => {
+                *guard = None;
+                return Err(format!("Gemini Live : connexion fermée par le serveur ({c:?})"));
+            }
+            Some(Ok(_)) => continue,
+            Some(Err(e)) => {
+                *guard = None;
+                return Err(e.to_string());
+            }
+            None => {
+                *guard = None;
+                break;
+            }
+        }
+    }
+    log_event(app, "voice", &format!("live : {} chunk(s) audio reçus", chunks));
+    Ok(())
+}
+
 #[tauri::command]
 async fn speak(
     app: AppHandle,
@@ -1358,13 +1523,14 @@ async fn speak(
     let cfg = app.state::<BrainState>().config.lock().unwrap().clone();
 
     // ── Voix Gemini LIVE (audio_model = "gemini-live:Kore") ──
-    // WebSocket persistant : l'audio sort par chunks PENDANT la génération,
-    // c'est du speech-to-speech natif, pas du TTS séquentiel.
+    // SESSION PERSISTANTE : la WebSocket reste ouverte entre les réponses.
+    // Le setup (connexion + handshake + modalités) n'est payé qu'une fois ;
+    // chaque réponse n'envoie qu'un tour de parole → audio quasi immédiat.
     if cfg.audio_model.starts_with("gemini-live") {
-        let voice = cfg.audio_model.split(':').nth(1).unwrap_or("Kore").to_string();
         let key = cfg.api_key.clone();
+        let _ = on_chunk.send("__RESET__".into());
 
-        // interruption de la voix en cours
+        // interruption de la voix en cours (côté lecteur frontend)
         if let Ok(mut guard) = TTS_CHILD.lock() {
             if let Some(old) = guard.as_mut() {
                 let _ = old.kill();
@@ -1373,171 +1539,32 @@ async fn speak(
             *guard = None;
         }
 
-        let _ = on_chunk.send("__RESET__".into());
-        let url = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
-        // construction OFFICIELLE de la requête (IntoClientRequest) — la version
-        // construite à la main causait des handshakes que le serveur ignorait
-        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-        let mut req = url
-            .into_client_request()
-            .map_err(|e| format!("Gemini Live : requête invalide ({e})"))?;
-        req.headers_mut().insert(
-            "x-goog-api-key",
-            tokio_tungstenite::tungstenite::http::HeaderValue::from_str(&key)
-                .map_err(|e| e.to_string())?,
-        );
-        let (mut ws, _) = tokio_tungstenite::connect_async(req)
-            .await
-            .map_err(|e| {
-                log_event(&app, "voice", &format!("live : connexion échouée : {e}"));
-                format!("Gemini Live : connexion échouée ({e})")
-            })?;
-        log_event(&app, "voice", "live : websocket connecté");
-
-        // Setup : modèle, voix, modalités audio
-        // NB : speechConfig n'existe plus dans le setup de gemini-3.8-live
-        let setup = serde_json::json!({
-            "setup": {
-                "model": "models/gemini-3.8-live",
-                "generationConfig": {"responseModalities": ["AUDIO"]}
+        // première tentative, puis reconnexion forcée une fois en cas d'erreur
+        let mut last_err: Option<String> = None;
+        for attempt in 0..2 {
+            if attempt == 1 {
+                *LIVE_WS.lock().await = None; // force la reconnexion
             }
-        });
-        let _ = voice;
-        log_event(&app, "voice", "live : setup envoyé");
-        ws.send(WsMessage::Text(setup.to_string()))
-            .await
-            .map_err(|e| e.to_string())?;
-
-        // Attendre setupComplete — ON LOGUE TOUT, texte comme binaire
-        loop {
-            let msg = tokio::time::timeout(
-                std::time::Duration::from_secs(10),
-                ws.next(),
-            )
-            .await
-            .map_err(|_| {
-                log_event(&app, "voice", "live : timeout setup (aucune frame en 10s)");
-                "Gemini Live : timeout setup".to_string()
-            })?;
-            match msg {
-                Some(Ok(WsMessage::Text(t))) => {
-                    let preview: String = t.chars().take(160).collect();
-                    log_event(&app, "voice", &format!("live : frame TEXT : {preview}"));
-                    if t.contains("setupComplete") {
-                        log_event(&app, "voice", "live : setupComplete reçu ✅");
-                        break;
-                    }
+            match ensure_live_session(&app, &key).await {
+                Err(e) => {
+                    last_err = Some(e);
                     continue;
                 }
-                Some(Ok(WsMessage::Binary(b))) => {
-                    // les frames binaires contiennent du JSON : setupComplete peut y être !
-                    let text = String::from_utf8_lossy(&b).to_string();
-                    let preview: String = text.chars().take(160).collect();
-                    log_event(&app, "voice", &format!("live : frame BINARY : {preview}"));
-                    if text.contains("setupComplete") {
-                        log_event(&app, "voice", "live : setupComplete reçu (binaire) ✅");
-                        break;
-                    }
+                Ok(()) => {}
+            }
+            match live_turn(&app, &text, &on_chunk).await {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    // session cassée : on la drope et on réessaie une fois
+                    *LIVE_WS.lock().await = None;
+                    last_err = Some(e);
                     continue;
                 }
-                Some(Ok(WsMessage::Ping(p))) => {
-                    log_event(&app, "voice", "live : frame PING (répondu auto)");
-                    continue;
-                }
-                Some(Ok(WsMessage::Close(c))) => {
-                    log_event(&app, "voice", &format!("live : CLOSE {c:?}"));
-                    return Err("Gemini Live : connexion fermée par le serveur".to_string());
-                }
-                Some(Ok(_)) => continue,
-                Some(Err(e)) => return Err(format!("Gemini Live : {e}")),
-                None => return Err("Gemini Live : connexion fermée".into()),
             }
         }
-
-        let turn = serde_json::json!({
-            "clientContent": {
-                "turns": [{"role": "user", "parts": [{"text": text}]}],
-                "turnComplete": true
-            }
-        });
-        ws.send(WsMessage::Text(turn.to_string()))
-            .await
-            .map_err(|e| e.to_string())?;
-
-        // Stream des chunks audio — Google mélange TEXT et BINARY frames
-        let mut chunks = 0usize;
-        loop {
-            let msg = tokio::time::timeout(
-                std::time::Duration::from_secs(20),
-                ws.next(),
-            )
-            .await;
-            let msg = match msg {
-                Ok(m) => m,
-                Err(_) => {
-                    log_event(&app, "voice", "live : timeout génération");
-                    return Err("Gemini Live : timeout génération".to_string());
-                }
-            };
-            match msg {
-                Some(Ok(WsMessage::Text(t))) => {
-                    let Ok(v) = serde_json::from_str::<serde_json::Value>(&t) else { continue };
-                    if v.get("error").is_some() {
-                        let detail = v["error"]["message"].as_str().unwrap_or("?").to_string();
-                        log_event(&app, "voice", &format!("live : erreur serveur : {detail}"));
-                        return Err(format!("Gemini Live : {detail}"));
-                    }
-                    if let Some(parts) = v["serverContent"]["modelTurn"]["parts"].as_array() {
-                        for part in parts {
-                            if let Some(d) = part["inlineData"]["data"].as_str() {
-                                chunks += 1;
-                                let _ = on_chunk.send(d.to_string());
-                            }
-                        }
-                    }
-                    if v["serverContent"]["turnComplete"].as_bool() == Some(true) {
-                        break;
-                    }
-                }
-                Some(Ok(WsMessage::Binary(b))) => {
-                    // les frames binaires contiennent du JSON (modelTurn) OU de l'audio brut
-                    let text = String::from_utf8_lossy(&b);
-                    match serde_json::from_str::<serde_json::Value>(&text) {
-                        Ok(v) => {
-                            if v.get("error").is_some() {
-                                let detail = v["error"]["message"].as_str().unwrap_or("?").to_string();
-                                log_event(&app, "voice", &format!("live : erreur serveur : {detail}"));
-                                return Err(format!("Gemini Live : {detail}"));
-                            }
-                            if let Some(parts) = v["serverContent"]["modelTurn"]["parts"].as_array() {
-                                for part in parts {
-                                    if let Some(d) = part["inlineData"]["data"].as_str() {
-                                        chunks += 1;
-                                        let _ = on_chunk.send(d.to_string());
-                                    }
-                                }
-                            }
-                            if v["serverContent"]["turnComplete"].as_bool() == Some(true) {
-                                break;
-                            }
-                        }
-                        Err(_) => {
-                            // audio brut (bytes PCM) : on l'envoie encodé
-                            use base64::Engine as _;
-                            chunks += 1;
-                            let _ = on_chunk.send(base64::engine::general_purpose::STANDARD.encode(&b));
-                        }
-                    }
-                }
-                Some(Ok(_)) => continue,
-                Some(Err(e)) => {
-                    log_event(&app, "voice", &format!("live : erreur ws : {e}"));
-                    return Err(e.to_string());
-                }
-                None => break,
-            }
+        if let Some(e) = last_err {
+            return Err(e);
         }
-        log_event(&app, "voice", &format!("live : {} chunk(s) audio reçus", chunks));
         return Ok(());
     }
 

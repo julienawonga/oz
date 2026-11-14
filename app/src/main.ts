@@ -129,6 +129,7 @@ window.addEventListener("pointerdown", () => ensureAudio());
 window.addEventListener("keydown", () => ensureAudio());
 
 let nextAudioTime = 0;
+let voiceRequestId = 0;
 function playPcmChunk(b64: string): void {
   const ctx = ensureAudio();
   const bin = atob(b64);
@@ -288,12 +289,16 @@ async function converse(text: string): Promise<void> {
       Math.min(12000, 2500 + reply.length * 60)
     );
     const voiceChan = new Channel<string>();
+    const myId = ++voiceRequestId;
     voiceChan.onmessage = (b64) => {
+      if (voiceRequestId !== myId) return; // chunks d'un ancien flux → ignorés
       if (b64 === "__RESET__") nextAudioTime = 0;
       else playPcmChunk(b64);
     };
     invoke("speak", { text: reply, onChunk: voiceChan }).catch((err) => {
-      say("🎙️ Erreur voix : " + String(err).slice(0, 110), 8000);
+      if (voiceRequestId === myId) {
+        say("🎙️ Erreur voix : " + String(err).slice(0, 110), 8000);
+      }
     });
   } catch (err) {
     say(String(err).slice(0, 90), 6000);
