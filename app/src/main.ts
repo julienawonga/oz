@@ -407,6 +407,11 @@ void (async () => {
   } catch { zones = []; }
 })();
 
+// Rafraîchit les zones toutes les 5 s (le panneau de contrôle peut les modifier)
+setInterval(() => {
+  void invoke("get_zones").then((z) => (zones = z as Zone[])).catch(() => {});
+}, 5000);
+
 function overlapsZone(px: number, py: number, pw: number, ph: number): Zone | null {
   for (const z of zones) {
     if (px < z.x + z.w && px + pw > z.x && py < z.y + z.h && py + ph > z.y) return z;
