@@ -332,6 +332,7 @@ const SYSTEM_PROMPT: &str = "Tu es Nid, un petit compagnon de bureau vivant dans
 struct BrainState {
     config: Mutex<BrainConfig>,
     history: Mutex<Vec<ChatMessage>>,
+    since_consolidation: Mutex<usize>,
 }
 
 fn load_brain_config(app: &AppHandle) -> BrainConfig {
@@ -392,6 +393,7 @@ async fn chat(
     }
 
     let cfg = state.config.lock().unwrap().clone();
+    let user_msg = user_message.clone();
 
     // Historique : on garde léger (20 derniers messages + système)
     {
@@ -406,9 +408,11 @@ async fn chat(
         }
     }
 
+    let mut system = SYSTEM_PROMPT.to_string();
+    system.push_str(&build_memory_block(&app, &user_msg));
     let mut messages = vec![ChatMessage {
         role: "system".into(),
-        content: SYSTEM_PROMPT.into(),
+        content: system,
     }];
     messages.extend(state.history.lock().unwrap().iter().cloned());
 
@@ -905,6 +909,183 @@ async fn look_at(
     Ok(desc)
 }
 
+// ═══════════════ Mémoire multi-niveaux (inspirée de Waku Agent) ═══════════════
+// 💬 Working (session) · 📖 Épisodique (résumés) · 🎯 Sémantique (faits)
+// · 🖼️ Spatial (album, par fenêtre). Consolidation par lots de 6 messages :
+// le petit modèle distille, avec les filtres anti-bruit de Waku
+// (jamais l'état opérationnel, jamais les réponses de l'agent, dédoublonnage).
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Fact {
+    pub subject: String,
+    pub content: String,
+    pub ts: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Episode {
+    pub summary: String,
+    pub ts: u64,
+}
+
+fn facts_path(app: &AppHandle) -> std::path::PathBuf {
+    app.path().app_data_dir().expect("app_data_dir").join("semantic.json")
+}
+fn episodes_path(app: &AppHandle) -> std::path::PathBuf {
+    app.path().app_data_dir().expect("app_data_dir").join("episodic.json")
+}
+
+fn load_facts(app: &AppHandle) -> Vec<Fact> {
+    fs::read_to_string(facts_path(app))
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn load_episodes(app: &AppHandle) -> Vec<Episode> {
+    fs::read_to_string(episodes_path(app))
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+/// Filtre anti-bruit (Waku : is_ops_state) — l'état opérationnel change
+/// trop vite pour être une mémoire.
+fn is_ops_state(content: &str) -> bool {
+    let c = content.to_lowercase();
+    ["solde", "crédit", "credit", "token", "rate limit", "429", "402",
+     "insuffisant", "balance", "erreur d'outil", "mémoire contient", "mémoire ne"]
+        .iter()
+        .any(|kw| c.contains(kw))
+}
+
+/// Dédoublonnage sémantique : un fait dont le contenu est déjà couvert
+/// (contient / est contenu) n'entre pas (Waku : "restates").
+fn is_duplicate(facts: &[Fact], content: &str) -> bool {
+    let c = content.to_lowercase();
+    facts.iter().any(|f| {
+        let e = f.content.to_lowercase();
+        (e.len() > 15 && c.contains(&e)) || (c.len() > 15 && e.contains(&c))
+    })
+}
+
+const CONSOLIDATION_EVERY: usize = 6; // Waku : "only consolidate after N new chats"
+
+const CONSOLIDATION_PROMPT: &str = "Tu distilles la conversation récente d'un compagnon de bureau en mémoire long terme. \
+Extrais : 1) les faits durables sur Julien (préférences, projets, personnes, décisions) — un fait = une phrase courte qui nomme son sujet ; \
+2) un épisode : une phrase résumant ce qui s'est passé dans cette conversation. \
+NE RETIENS JAMAIS l'état opérationnel de l'assistant (soldes, crédits, erreurs d'outils, limites, tokens), \
+ni le contenu des réponses de l'assistant, ni ce que la mémoire contient ou non. \
+N'extrais que ce que Julien a dit ou décidé. Réponds UNIQUEMENT en JSON : \
+{\"facts\":[{\"subject\":\"...\",\"content\":\"...\"}],\"episode\":\"...\"}";
+
+/// Consolidation : distille les N derniers échanges en faits + épisode.
+/// Lancée en tâche de fond — ne bloque jamais une réponse.
+fn spawn_consolidation(app: AppHandle, exchanges: Vec<ChatMessage>) {
+    tauri::async_runtime::spawn(async move {
+        let cfg = {
+            let brain = app.state::<BrainState>();
+            brain.config.lock().unwrap().clone()
+        };
+        let body = serde_json::json!({
+            "model": cfg.model,
+            "messages": [{"role": "system", "content": CONSOLIDATION_PROMPT},
+                         {"role": "user", "content": serde_json::to_string(&exchanges).unwrap_or_default()}],
+            "stream": false,
+            "think": false,
+            "format": "json"
+        });
+        let Ok(resp) = reqwest::Client::new()
+            .post(format!("{}/api/chat", cfg.url))
+            .json(&body)
+            .send()
+            .await
+        else { return; };
+        let Ok(json) = resp.json::<serde_json::Value>().await else { return; };
+        let Some(text) = json["message"]["content"].as_str() else { return; };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(text) else { return; };
+
+        // Faits : filtres Waku puis écriture
+        let mut facts = load_facts(&app);
+        let mut kept = 0;
+        if let Some(list) = v["facts"].as_array() {
+            for f in list {
+                let (Some(subject), Some(content)) =
+                    (f["subject"].as_str(), f["content"].as_str())
+                else { continue };
+                if is_ops_state(content) || is_duplicate(&facts, content) {
+                    continue;
+                }
+                facts.push(Fact {
+                    subject: subject.chars().take(60).collect(),
+                    content: content.chars().take(200).collect(),
+                    ts: now_ts(),
+                });
+                kept += 1;
+            }
+        }
+        if kept > 0 {
+            if facts.len() > 200 { facts = facts.split_off(facts.len() - 200); } // vieillissement
+            let _ = fs::write(facts_path(&app), serde_json::to_string_pretty(&facts).unwrap());
+        }
+
+        // Épisode
+        if let Some(ep) = v["episode"].as_str() {
+            if !ep.is_empty() && !is_ops_state(ep) {
+                let mut episodes = load_episodes(&app);
+                episodes.push(Episode { summary: ep.chars().take(200).collect(), ts: now_ts() });
+                if episodes.len() > 100 { episodes = episodes.split_off(episodes.len() - 100); }
+                let _ = fs::write(episodes_path(&app), serde_json::to_string_pretty(&episodes).unwrap());
+            }
+        }
+        log_event(&app, "memory", &format!("consolidation : {} fait(s) retenu(s)", kept));
+    });
+}
+
+#[tauri::command]
+fn get_facts(app: AppHandle) -> Vec<Fact> {
+    load_facts(&app)
+}
+
+#[tauri::command]
+fn forget_fact(app: AppHandle, ts: u64) -> Result<(), String> {
+    let mut facts = load_facts(&app);
+    facts.retain(|f| f.ts != ts);
+    fs::write(facts_path(&app), serde_json::to_string_pretty(&facts).unwrap())
+        .map_err(|e| e.to_string())
+}
+
+/// Injection : "ce que Nid sait déjà" — derniers faits + souvenirs spatiaux
+/// pertinents (Waku : le bloc "company brain").
+fn build_memory_block(app: &AppHandle, user_message: &str) -> String {
+    let mut block = String::new();
+    let facts = load_facts(app);
+    if !facts.is_empty() {
+        block.push_str("\n\nCe que tu sais déjà de Julien :\n");
+        for f in facts.iter().rev().take(8) {
+            block.push_str(&format!("- {}\n", f.content));
+        }
+    }
+    // Album spatial : les souvenirs dont le lieu est évoqué dans le message
+    let memories = load_memories(app);
+    let mentioned: Vec<&Memory> = memories
+        .iter()
+        .filter(|m| {
+            m.key.split([':', ' ', '.', '-'])
+                .filter(|w| w.len() > 3)
+                .any(|w| user_message.to_lowercase().contains(&w.to_lowercase()))
+        })
+        .take(3)
+        .collect();
+    if !mentioned.is_empty() {
+        block.push_str("\nSouvenirs de lieux déjà regardés :\n");
+        for m in mentioned {
+            block.push_str(&format!("- [{}] {}\n", m.key.split("::").next().unwrap_or(""), m.note));
+        }
+    }
+    block
+}
+
 // ═══════════════ Voix : STT whisper local + TTS système ═══════════════
 
 use futures_util::StreamExt;
@@ -1034,6 +1215,7 @@ pub fn run() {
             app.manage(BrainState {
                 config: Mutex::new(brain),
                 history: Mutex::new(Vec::new()),
+                since_consolidation: Mutex::new(0),
             });
             app.manage(ZonesState(Mutex::new(load_zones(app.handle()))));
             Ok(())
@@ -1054,7 +1236,9 @@ pub fn run() {
             get_journal,
             add_memory,
             get_memories,
-            clear_memory
+            clear_memory,
+            get_facts,
+            forget_fact
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

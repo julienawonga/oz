@@ -597,18 +597,35 @@ function renderHouse(): void {
         : `<div class="house-empty">Le journal est vide — Nid n'a encore rien fait 🌙</div>`;
     } else if (houseTab === "album") {
       const memories = (await invoke("get_memories")) as Array<{ key: string; note: string; ts: number }>;
-      houseContent.innerHTML = memories.length
+      const facts = (await invoke("get_facts")) as Array<{ subject: string; content: string; ts: number }>;
+      houseContent.innerHTML =
+        `<div class="section-title">🎯 Faits durables (consolidation)</div>` +
+        (facts.length
+          ? facts
+              .map(
+                (f) =>
+                  `<div class="house-item"><b>${f.subject}</b> — ${f.content.slice(0, 140)}<span class="ts">${fmtTs(f.ts)}</span><button class="house-delete" data-ts="${f.ts}">🗑️</button></div>`
+              )
+              .join("")
+          : `<div class="house-empty">Aucun fait consolidé encore — ça vient après quelques conversations</div>`) +
+        `<div class="section-title" style="margin-top:10px">🖼️ Souvenirs de lieux (vision)</div>` +
+        (memories.length
         ? memories
             .map(
               (m) =>
                 `<div class="house-item"><b>${m.key.split("::")[0]}</b> — ${m.note.slice(0, 140)}<span class="ts">${fmtTs(m.ts)}</span><button class="house-delete" data-key="${m.key}">🗑️</button></div>`
             )
             .join("")
-        : `<div class="house-empty">L'album est vide — demandez-lui de "regarder" une fenêtre autorisée 👁️</div>`;
+        : `<div class="house-empty">L'album est vide — demandez-lui de "regarder" une fenêtre autorisée 👁️</div>`);
       houseContent.querySelectorAll(".house-delete").forEach((btn) => {
         btn.addEventListener("click", async (ev) => {
           ev.stopPropagation();
-          await invoke("clear_memory", { key: (ev.currentTarget as HTMLElement).dataset.key });
+          const el = ev.currentTarget as HTMLElement;
+          if (el.dataset.key) {
+            await invoke("clear_memory", { key: el.dataset.key });
+          } else if (el.dataset.ts) {
+            await invoke("forget_fact", { ts: Number(el.dataset.ts) });
+          }
           renderHouse();
         });
       });
