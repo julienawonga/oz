@@ -654,13 +654,15 @@ function renderHouse(): void {
         });
       });
     } else if (houseTab === "fridge") {
-      const cfg = (await invoke("get_brain_config")) as { provider: string; model: string; url: string; vision_model: string };
+      const cfg = (await invoke("get_brain_config")) as { provider: string; model: string; url: string; vision_model: string; audio_model: string; api_key: string };
       houseContent.innerHTML =
         `<div class="house-form">` +
         `<label>Provider <input id="f-provider" value="${cfg.provider}"></label>` +
         `<label>Modèle <input id="f-model" value="${cfg.model}"></label>` +
         `<label>URL <input id="f-url" value="${cfg.url}"></label>` +
         `<label>Vision <input id="f-vision" value="${cfg.vision_model}"></label>` +
+        `<label>Audio <input id="f-audio" value="${cfg.audio_model ?? ""}" placeholder="gemini-tts:Kore"></label>` +
+        `<label>Clé Gemini <input id="f-key" type="password" value="${cfg.api_key ?? ""}" placeholder="AIza..."></label>` +
         `<button id="f-save">🍽️ Ranger dans le frigo</button>` +
         `</div>`;
       document.getElementById("f-save")!.addEventListener("click", async (ev) => {
@@ -671,6 +673,8 @@ function renderHouse(): void {
             model: (document.getElementById("f-model") as HTMLInputElement).value,
             url: (document.getElementById("f-url") as HTMLInputElement).value,
             vision_model: (document.getElementById("f-vision") as HTMLInputElement).value,
+            audio_model: (document.getElementById("f-audio") as HTMLInputElement).value,
+            api_key: (document.getElementById("f-key") as HTMLInputElement).value,
           },
         });
         say("C'est rangé dans le frigo ! 🍽️", 3000);

@@ -182,6 +182,8 @@ async function renderBrain(): Promise<void> {
     `<label>Modèle de conversation<input id="b-model" value="${esc(cfg.model)}"></label>` +
     `<label>URL du provider<input id="b-url" value="${esc(cfg.url)}"></label>` +
     `<label>Modèle vision<input id="b-vision" value="${esc(cfg.vision_model)}"></label>` +
+    `<label>Modèle audio<input id="b-audio" value="${esc(cfg.audio_model ?? "")}" placeholder="gemini-tts:Kore ou vide = voix système"></label>` +
+    `<label>Clé Gemini<input id="b-key" type="password" value="${esc(cfg.api_key ?? "")}" placeholder="AIza... (aistudio.google.com/apikey)"></label>` +
     `<button id="b-save">💾 Enregistrer</button>` +
     `</div>` +
     `<div class="card" style="margin-top:10px"><span class="muted">💡 Modèles Ollama suggérés : lfm3:latest (rapide), lfm2.5:latest (plus de connaissances), moondream:latest (vision)</span></div>`;
@@ -192,6 +194,8 @@ async function renderBrain(): Promise<void> {
         model: (document.getElementById("b-model") as HTMLInputElement).value,
         url: (document.getElementById("b-url") as HTMLInputElement).value,
         vision_model: (document.getElementById("b-vision") as HTMLInputElement).value,
+        audio_model: (document.getElementById("b-audio") as HTMLInputElement).value,
+        api_key: (document.getElementById("b-key") as HTMLInputElement).value,
       },
     });
     alert("Cerveau mis à jour ✅ — Nid l'utilise dès le prochain message.");
