@@ -1,5 +1,12 @@
 import { getCurrentWindow, currentMonitor, PhysicalPosition } from "@tauri-apps/api/window";
 import { invoke, Channel } from "@tauri-apps/api/core";
+// mode voix gemini-live (lecture de la config cerveau)
+let voiceLiveMode = false;
+void invoke("get_brain_config")
+  .then((cfg) => {
+    voiceLiveMode = String((cfg as { audio_model?: string }).audio_model ?? "").startsWith("gemini-live");
+  })
+  .catch(() => {});
 import { listen } from "@tauri-apps/api/event";
 
 // ── Nid · le petit œuf (2D) ─────────────────────────────────────────
@@ -129,7 +136,16 @@ window.addEventListener("pointerdown", () => ensureAudio());
 window.addEventListener("keydown", () => ensureAudio());
 
 let nextAudioTime = 0;
-let voiceRequestId = 0;
+
+void listen<string>("nid://voice-reset", () => (nextAudioTime = 0));
+void listen<string>("nid://voice-audio", (e) => playPcmChunk(e.payload));
+void listen<string>("nid://voice-error", (e) => {
+  say("🎙️ " + String(e.payload).slice(0, 110), 8000);
+});
+void listen<string>("nid://nid-text", (e) => {
+  bubble.textContent = e.payload;
+  bubble.classList.remove("hidden");
+});
 function playPcmChunk(b64: string): void {
   const ctx = ensureAudio();
   const bin = atob(b64);
@@ -279,27 +295,29 @@ async function converse(text: string): Promise<void> {
   try {
     const onChunk = new Channel<string>();
     let acc = "";
+    let fed = 0;
     onChunk.onmessage = (tok) => {
       acc += tok;
       bubble.textContent = acc;
+      if (voiceLiveMode) {
+        const pending = acc.slice(fed);
+        const m = pending.match(/^[\s\S]*?[.!?…]+(?:\s|$)|^[\s\S]*\n/);
+        if (m && m[0].trim().length > 2) {
+          fed += m[0].length;
+          void invoke("voice_feed", { text: m[0] }).catch(() => {});
+        }
+      }
     };
     const reply = await invoke<string>("chat", { userMessage: text, onChunk });
     setTimeout(
       () => bubble.classList.add("hidden"),
       Math.min(12000, 2500 + reply.length * 60)
     );
-    const voiceChan = new Channel<string>();
-    const myId = ++voiceRequestId;
-    voiceChan.onmessage = (b64) => {
-      if (voiceRequestId !== myId) return; // chunks d'un ancien flux → ignorés
-      if (b64 === "__RESET__") nextAudioTime = 0;
-      else playPcmChunk(b64);
-    };
-    invoke("speak", { text: reply, onChunk: voiceChan }).catch((err) => {
-      if (voiceRequestId === myId) {
-        say("🎙️ Erreur voix : " + String(err).slice(0, 110), 8000);
-      }
-    });
+    // gemini-live : l'audio est streamé via les events nid://voice-*
+    // (voice_end déclenche la parole) ; autres backends : speak() classique
+    if (!voiceLiveMode) {
+      invoke("speak", { text: reply }).catch(() => {});
+    }
   } catch (err) {
     say(String(err).slice(0, 90), 6000);
   } finally {
