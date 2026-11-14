@@ -1530,7 +1530,12 @@ async fn ensure_live_session(app: &AppHandle, key: &str) -> Result<(), String> {
 
 /// Envoie un morceau de texte incrémental (turnComplete=false) — streaming
 #[tauri::command]
-async fn voice_feed(text: String) -> Result<(), String> {
+async fn voice_feed(app: AppHandle, text: String) -> Result<(), String> {
+    let key = gemini_key_from_state(&app).await;
+    if key.is_empty() {
+        return Err("Pas de clé Gemini dans le frigo 🍽️".into());
+    }
+    ensure_live_session(&app, &key).await?;
     let mut guard = LIVE_TX.lock().await;
     let Some(tx) = guard.as_mut() else {
         return Err("Gemini Live : session absente".into());
@@ -1545,7 +1550,12 @@ async fn voice_feed(text: String) -> Result<(), String> {
 
 /// Termine le tour : le modèle parle, l'audio sort via le lecteur (events)
 #[tauri::command]
-async fn voice_end() -> Result<(), String> {
+async fn voice_end(app: AppHandle) -> Result<(), String> {
+    let key = gemini_key_from_state(&app).await;
+    if key.is_empty() {
+        return Err("Pas de clé Gemini dans le frigo 🍽️".into());
+    }
+    ensure_live_session(&app, &key).await?;
     let mut guard = LIVE_TX.lock().await;
     let Some(tx) = guard.as_mut() else {
         return Err("Gemini Live : session absente".into());
