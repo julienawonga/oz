@@ -1393,13 +1393,14 @@ async fn speak(
             .map_err(|e| format!("Gemini Live : connexion échouée ({e})"))?;
 
         // Setup : modèle, voix, modalités audio
+        // NB : speechConfig n'existe plus dans le setup de gemini-3.8-live
         let setup = serde_json::json!({
             "setup": {
                 "model": "models/gemini-3.8-live",
-                "generationConfig": {"responseModalities": ["AUDIO"]},
-                "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}}
+                "generationConfig": {"responseModalities": ["AUDIO"]}
             }
         });
+        let _ = voice;
         ws.send(WsMessage::Text(setup.to_string()))
             .await
             .map_err(|e| e.to_string())?;
