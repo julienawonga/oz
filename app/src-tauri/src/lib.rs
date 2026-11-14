@@ -353,12 +353,15 @@ fn get_brain_config(state: State<'_, BrainState>) -> BrainConfig {
     state.config.lock().unwrap().clone()
 }
 
-/// Envoie la conversation au provider configuré et retourne la réponse.
+/// Envoie la conversation au provider configuré, en STREAMING :
+/// chaque token est poussé au frontend via le Channel, et la réponse
+/// complète est retournée à la fin (pour l'historique et le TTS).
 #[tauri::command]
 async fn chat(
     state: State<'_, BrainState>,
     broker: State<'_, BrokerState>,
     user_message: String,
+    on_chunk: tauri::ipc::Channel<String>,
 ) -> Result<String, String> {
     // 0. Routeur d'intentions : les actions ne passent JAMAIS par le LLM.
     // Un mot-clé suffit — et c'est le broker qui vérifie les permissions.
@@ -403,26 +406,52 @@ async fn chat(
             let body = serde_json::json!({
                 "model": cfg.model,
                 "messages": messages,
-                "stream": false,
+                "stream": true,
                 "think": false
             });
             let client = reqwest::Client::new();
-            let resp = client
+            let mut resp = client
                 .post(&url)
                 .json(&body)
                 .send()
                 .await
                 .map_err(|e| format!("Ollama injoignable ({e}) — serveur lancé ?"))?;
-            let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-            let reply = json["message"]["content"]
-                .as_str()
-                .unwrap_or("…")
-                .to_string();
+
+            // Flux NDJSON : une ligne JSON par token
+            let mut full = String::new();
+            let mut buffer = String::new();
+            let mut stream = resp.bytes_stream();
+            while let Some(chunk) = stream.next().await {
+                let bytes = chunk.map_err(|e| e.to_string())?;
+                buffer.push_str(&String::from_utf8_lossy(&bytes));
+                while let Some(pos) = buffer.find('\n') {
+                    let line: String = buffer.drain(..=pos).collect();
+                    let line = line.trim();
+                    if line.is_empty() {
+                        continue;
+                    }
+                    let v: serde_json::Value =
+                        serde_json::from_str(line).map_err(|e| e.to_string())?;
+                    if let Some(tok) = v["message"]["content"].as_str() {
+                        if !tok.is_empty() {
+                            full.push_str(tok);
+                            let _ = on_chunk.send(tok.to_string());
+                        }
+                    }
+                    if v["done"].as_bool() == Some(true) {
+                        state.history.lock().unwrap().push(ChatMessage {
+                            role: "assistant".into(),
+                            content: full.clone(),
+                        });
+                        return Ok(full);
+                    }
+                }
+            }
             state.history.lock().unwrap().push(ChatMessage {
                 role: "assistant".into(),
-                content: reply.clone(),
+                content: full.clone(),
             });
-            Ok(reply)
+            Ok(full)
         }
         other => Err(format!("provider inconnu : {other}")),
     }
@@ -582,6 +611,7 @@ fn execute_action(broker: &BrokerState, action: &str, target: &str) -> String {
 
 // ═══════════════ Voix : STT whisper local + TTS système ═══════════════
 
+use futures_util::StreamExt;
 use whisper_rs::{
     FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters,
 };
@@ -642,7 +672,10 @@ fn transcribe(samples: Vec<i16>) -> Result<String, String> {
 }
 
 /// Lit le texte à voix haute avec la voix française du système (SAPI).
-/// Non bloquant : parlé dans un thread dédié.
+/// Canal unique : une nouvelle parole INTERROMPT la précédente
+/// (on tue le processus PowerShell du TTS en cours).
+static TTS_CHILD: Mutex<Option<std::process::Child>> = Mutex::new(None);
+
 #[tauri::command]
 fn speak(app: AppHandle, text: String) -> Result<(), String> {
     let tmp = app.path().app_data_dir().unwrap().join("tts.txt");
@@ -657,6 +690,15 @@ fn speak(app: AppHandle, text: String) -> Result<(), String> {
         tmp.to_str().unwrap().replace('\\', "\\\\")
     );
     std::thread::spawn(move || {
+        // 1. Tue la voix en cours s'il y en a une
+        if let Ok(mut guard) = TTS_CHILD.lock() {
+            if let Some(old) = guard.as_mut() {
+                let _ = old.kill();
+                let _ = old.wait();
+            }
+            *guard = None;
+        }
+        // 2. Lance la nouvelle voix
         let mut cmd = std::process::Command::new("powershell");
         cmd.args(["-NoProfile", "-Command", &script]);
         #[cfg(windows)]
@@ -664,7 +706,21 @@ fn speak(app: AppHandle, text: String) -> Result<(), String> {
             use std::os::windows::process::CommandExt;
             cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
         }
-        let _ = cmd.output();
+        match cmd.spawn() {
+            Ok(child) => {
+                if let Ok(mut guard) = TTS_CHILD.lock() {
+                    *guard = Some(child);
+                }
+                // 3. Attend la fin pour libérer le slot
+                if let Ok(mut guard) = TTS_CHILD.lock() {
+                    if let Some(c) = guard.as_mut() {
+                        let _ = c.wait();
+                    }
+                    *guard = None;
+                }
+            }
+            Err(_) => {}
+        }
     });
     Ok(())
 }
