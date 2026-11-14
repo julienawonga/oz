@@ -1430,8 +1430,14 @@ async fn speak(
                     continue;
                 }
                 Some(Ok(WsMessage::Binary(b))) => {
-                    let preview: String = String::from_utf8_lossy(&b).chars().take(160).collect();
+                    // les frames binaires contiennent du JSON : setupComplete peut y être !
+                    let text = String::from_utf8_lossy(&b).to_string();
+                    let preview: String = text.chars().take(160).collect();
                     log_event(&app, "voice", &format!("live : frame BINARY : {preview}"));
+                    if text.contains("setupComplete") {
+                        log_event(&app, "voice", "live : setupComplete reçu (binaire) ✅");
+                        break;
+                    }
                     continue;
                 }
                 Some(Ok(WsMessage::Ping(p))) => {
