@@ -1477,6 +1477,7 @@ async fn ensure_live_session(app: &AppHandle, key: &str) -> Result<(), String> {
 
     let reader_app = app.clone();
     tokio::spawn(async move {
+        let mut audio_chunks = 0usize;
         loop {
             let msg = match rx.next().await {
                 Some(m) => m,
