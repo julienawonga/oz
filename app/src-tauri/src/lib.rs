@@ -1380,7 +1380,7 @@ async fn ensure_live_session(app: &AppHandle, key: &str) -> Result<(), String> {
         tokio_tungstenite::tungstenite::http::HeaderValue::from_str(key)
             .map_err(|e| e.to_string())?,
     );
-    let (ws, _) = tokio_tungstenite::connect_async(req)
+    let (mut ws, _) = tokio_tungstenite::connect_async(req)
         .await
         .map_err(|e| {
             log_event(app, "voice", &format!("live : connexion échouée : {e}"));
@@ -1389,7 +1389,7 @@ async fn ensure_live_session(app: &AppHandle, key: &str) -> Result<(), String> {
         })?;
     log_event(app, "voice", "live : websocket connecté");
 
-    // setup — speechConfig n'existe plus dans gemini-3.8-live
+    // ── 1. SETUP : doit être le PREMIER message du flux ──
     let setup = serde_json::json!({
         "setup": {
             "model": "models/gemini-3.8-live",
@@ -1397,16 +1397,51 @@ async fn ensure_live_session(app: &AppHandle, key: &str) -> Result<(), String> {
             "inputAudioTranscription": {}
         }
     });
+    ws.send(WsMessage::Text(setup.to_string()))
+        .await
+        .map_err(|e| e.to_string())?;
+    log_event(app, "voice", "live : setup envoyé");
 
-    // Split : l'émetteur reste dans l'état, le lecteur tourne en tâche de fond
+    // ── 2. attendre setupComplete (frame TEXT ou BINARY) ──
+    loop {
+        let msg = tokio::time::timeout(std::time::Duration::from_secs(10), ws.next()).await;
+        let msg = match msg {
+            Ok(m) => m,
+            Err(_) => return Err("Gemini Live : timeout setup".into()),
+        };
+        match msg {
+            Some(Ok(WsMessage::Text(t))) => {
+                log_event(app, "voice", &format!("live : TEXT {}", t.chars().take(120).collect::<String>()));
+                if t.contains("setupComplete") {
+                    break;
+                }
+            }
+            Some(Ok(WsMessage::Binary(b))) => {
+                let text = String::from_utf8_lossy(&b).to_string();
+                log_event(app, "voice", &format!("live : BIN {}", text.chars().take(120).collect::<String>()));
+                if text.contains("setupComplete") {
+                    break;
+                }
+            }
+            Some(Ok(WsMessage::Ping(p))) => {
+                let _ = ws.send(WsMessage::Pong(p));
+            }
+            Some(Ok(WsMessage::Close(c))) => {
+                return Err(format!("Gemini Live : fermé pendant le setup ({c:?})"));
+            }
+            Some(Ok(_)) => {}
+            Some(Err(e)) => return Err(e.to_string()),
+            None => return Err("Gemini Live : connexion fermée (setup)".into()),
+        }
+    }
+
+    // ── 3. Split : émetteur dans l'état, lecteur en tâche de fond ──
     let (tx, mut rx) = ws.split();
     {
         let mut guard = LIVE_TX.lock().await;
         *guard = Some(tx);
     }
 
-    // lecteur dédié : traite TOUTES les frames entrantes en continu et
-    // émet les événements au frontend (audio, transcriptions, erreurs)
     let reader_app = app.clone();
     tokio::spawn(async move {
         loop {
@@ -1437,10 +1472,6 @@ async fn ensure_live_session(app: &AppHandle, key: &str) -> Result<(), String> {
                 voice_emit(&reader_app, "error", &detail);
                 continue;
             }
-            if v.get("setupComplete").is_some() {
-                log_event(&reader_app, "voice", "live : setupComplete ✅");
-                continue;
-            }
             if let Some(parts) = v["serverContent"]["modelTurn"]["parts"].as_array() {
                 for part in parts {
                     if let Some(d) = part["inlineData"]["data"].as_str() {
@@ -1458,10 +1489,8 @@ async fn ensure_live_session(app: &AppHandle, key: &str) -> Result<(), String> {
                 voice_emit(&reader_app, "turn-complete", "");
             }
         }
-        // session fermée : on libère l'émetteur pour forcer la reconnexion
         let mut guard = LIVE_TX.lock().await;
         *guard = None;
-        let _ = guard;
     });
     Ok(())
 }
