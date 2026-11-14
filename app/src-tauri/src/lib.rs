@@ -1395,7 +1395,7 @@ async fn speak(
         // Setup : modèle, voix, modalités audio
         let setup = serde_json::json!({
             "setup": {
-                "model": "models/gemini-2.0-flash-live-001",
+                "model": "models/gemini-3.8-live",
                 "generationConfig": {"responseModalities": ["AUDIO"]},
                 "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}}
             }
