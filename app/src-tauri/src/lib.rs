@@ -1405,6 +1405,7 @@ async fn speak(
             }
         });
         let _ = voice;
+        log_event(&app, "voice", "live : setup envoyé");
         ws.send(WsMessage::Text(setup.to_string()))
             .await
             .map_err(|e| e.to_string())?;
@@ -1416,9 +1417,19 @@ async fn speak(
                 ws.next(),
             )
             .await
-            .map_err(|_| "Gemini Live : timeout setup".to_string())?;
+            .map_err(|_| {
+                log_event(&app, "voice", "live : timeout setup");
+                "Gemini Live : timeout setup".to_string()
+            })?;
             match msg {
-                Some(Ok(WsMessage::Text(t))) if t.contains("setupComplete") => break,
+                Some(Ok(WsMessage::Text(t))) if t.contains("setupComplete") => {
+                    log_event(&app, "voice", "live : setupComplete reçu");
+                    break;
+                }
+                Some(Ok(WsMessage::Text(t))) => {
+                    log_event(&app, "voice", &format!("live : autre message : {}", &t.chars().take(120).collect::<String>()));
+                    continue;
+                }
                 Some(Ok(_)) => continue,
                 Some(Err(e)) => return Err(format!("Gemini Live : {e}")),
                 None => return Err("Gemini Live : connexion fermée".into()),
