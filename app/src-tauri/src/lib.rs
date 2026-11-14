@@ -1590,8 +1590,9 @@ async fn voice_end(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 async fn mic_chunk(app: AppHandle, data: String) -> Result<(), String> {
-    MIC_COUNT.lock().await.0 += 1;
-    let n = MIC_COUNT.lock().await.0;
+    let mut cnt = MIC_COUNT.lock().await;
+    *cnt += 1;
+    let n = *cnt;
     if n % 10 == 1 {
         log_event(&app, "voice", &format!("live : {} chunk(s) micro envoyés", n));
     }
