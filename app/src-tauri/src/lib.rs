@@ -1408,7 +1408,7 @@ async fn speak(
             .await
             .map_err(|e| e.to_string())?;
 
-        // Attendre setupComplete, puis envoyer le tour de parole
+        // Attendre setupComplete — ON LOGUE TOUT, texte comme binaire
         loop {
             let msg = tokio::time::timeout(
                 std::time::Duration::from_secs(10),
@@ -1416,17 +1416,31 @@ async fn speak(
             )
             .await
             .map_err(|_| {
-                log_event(&app, "voice", "live : timeout setup");
+                log_event(&app, "voice", "live : timeout setup (aucune frame en 10s)");
                 "Gemini Live : timeout setup".to_string()
             })?;
             match msg {
-                Some(Ok(WsMessage::Text(t))) if t.contains("setupComplete") => {
-                    log_event(&app, "voice", "live : setupComplete reçu");
-                    break;
-                }
                 Some(Ok(WsMessage::Text(t))) => {
-                    log_event(&app, "voice", &format!("live : autre message : {}", &t.chars().take(120).collect::<String>()));
+                    let preview: String = t.chars().take(160).collect();
+                    log_event(&app, "voice", &format!("live : frame TEXT : {preview}"));
+                    if t.contains("setupComplete") {
+                        log_event(&app, "voice", "live : setupComplete reçu ✅");
+                        break;
+                    }
                     continue;
+                }
+                Some(Ok(WsMessage::Binary(b))) => {
+                    let preview: String = String::from_utf8_lossy(&b).chars().take(160).collect();
+                    log_event(&app, "voice", &format!("live : frame BINARY : {preview}"));
+                    continue;
+                }
+                Some(Ok(WsMessage::Ping(p))) => {
+                    log_event(&app, "voice", "live : frame PING (répondu auto)");
+                    continue;
+                }
+                Some(Ok(WsMessage::Close(c))) => {
+                    log_event(&app, "voice", &format!("live : CLOSE {c:?}"));
+                    return Err("Gemini Live : connexion fermée par le serveur".to_string());
                 }
                 Some(Ok(_)) => continue,
                 Some(Err(e)) => return Err(format!("Gemini Live : {e}")),
@@ -1444,7 +1458,7 @@ async fn speak(
             .await
             .map_err(|e| e.to_string())?;
 
-        // Stream des chunks audio (journal = console de debug)
+        // Stream des chunks audio — Google mélange TEXT et BINARY frames
         let mut chunks = 0usize;
         loop {
             let msg = tokio::time::timeout(
@@ -1461,9 +1475,7 @@ async fn speak(
             };
             match msg {
                 Some(Ok(WsMessage::Text(t))) => {
-                    let Ok(v) = serde_json::from_str::<serde_json::Value>(&t) else {
-                        continue;
-                    };
+                    let Ok(v) = serde_json::from_str::<serde_json::Value>(&t) else { continue };
                     if v.get("error").is_some() {
                         let detail = v["error"]["message"].as_str().unwrap_or("?").to_string();
                         log_event(&app, "voice", &format!("live : erreur serveur : {detail}"));
@@ -1479,6 +1491,36 @@ async fn speak(
                     }
                     if v["serverContent"]["turnComplete"].as_bool() == Some(true) {
                         break;
+                    }
+                }
+                Some(Ok(WsMessage::Binary(b))) => {
+                    // les frames binaires contiennent du JSON (modelTurn) OU de l'audio brut
+                    let text = String::from_utf8_lossy(&b);
+                    match serde_json::from_str::<serde_json::Value>(&text) {
+                        Ok(v) => {
+                            if v.get("error").is_some() {
+                                let detail = v["error"]["message"].as_str().unwrap_or("?").to_string();
+                                log_event(&app, "voice", &format!("live : erreur serveur : {detail}"));
+                                return Err(format!("Gemini Live : {detail}"));
+                            }
+                            if let Some(parts) = v["serverContent"]["modelTurn"]["parts"].as_array() {
+                                for part in parts {
+                                    if let Some(d) = part["inlineData"]["data"].as_str() {
+                                        chunks += 1;
+                                        let _ = on_chunk.send(d.to_string());
+                                    }
+                                }
+                            }
+                            if v["serverContent"]["turnComplete"].as_bool() == Some(true) {
+                                break;
+                            }
+                        }
+                        Err(_) => {
+                            // audio brut (bytes PCM) : on l'envoie encodé
+                            use base64::Engine as _;
+                            chunks += 1;
+                            let _ = on_chunk.send(base64::engine::general_purpose::STANDARD.encode(&b));
+                        }
                     }
                 }
                 Some(Ok(_)) => continue,
