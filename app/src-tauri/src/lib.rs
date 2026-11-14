@@ -1356,6 +1356,7 @@ type WsStream = tokio_tungstenite::WebSocketStream<
 type WsTx = SplitSink<WsStream, WsMessage>;
 type WsRx = SplitStream<WsStream>;
 static LIVE_TX: tokio::sync::Mutex<Option<WsTx>> = tokio::sync::Mutex::const_new(None);
+static LIVE_CONNECT_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// Émet un événement vocal au frontend (audio, reset, erreur, transcription)
 fn voice_emit(app: &AppHandle, event: &str, payload: &str) {
@@ -1367,7 +1368,16 @@ async fn ensure_live_session(app: &AppHandle, key: &str) -> Result<(), String> {
     {
         let guard = LIVE_TX.lock().await;
         if guard.is_some() {
-            return Ok(());
+            return Ok(()); // session déjà ouverte
+        }
+    }
+    // verrou de connexion : un seul connect à la fois (les chunks micro
+    // arrivent en rafale et tous verraient "session absente" sinon)
+    let _conn = LIVE_CONNECT_LOCK.lock().await;
+    {
+        let guard = LIVE_TX.lock().await;
+        if guard.is_some() {
+            return Ok(()); // un autre appel a connecté pendant qu'on attendait
         }
     }
     let url = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
