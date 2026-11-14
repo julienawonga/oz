@@ -1375,19 +1375,17 @@ async fn speak(
 
         let _ = on_chunk.send("__RESET__".into());
         let url = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
-        let req = tokio_tungstenite::tungstenite::http::Request::builder()
-            .uri(url)
-            .header("x-goog-api-key", &key)
-            .header("Host", "generativelanguage.googleapis.com")
-            .header("Connection", "Upgrade")
-            .header("Upgrade", "websocket")
-            .header("Sec-WebSocket-Version", "13")
-            .header(
-                "Sec-WebSocket-Key",
-                tokio_tungstenite::tungstenite::handshake::client::generate_key(),
-            )
-            .body(())
-            .map_err(|e| e.to_string())?;
+        // construction OFFICIELLE de la requête (IntoClientRequest) — la version
+        // construite à la main causait des handshakes que le serveur ignorait
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+        let mut req = url
+            .into_client_request()
+            .map_err(|e| format!("Gemini Live : requête invalide ({e})"))?;
+        req.headers_mut().insert(
+            "x-goog-api-key",
+            tokio_tungstenite::tungstenite::http::HeaderValue::from_str(&key)
+                .map_err(|e| e.to_string())?,
+        );
         let (mut ws, _) = tokio_tungstenite::connect_async(req)
             .await
             .map_err(|e| {
