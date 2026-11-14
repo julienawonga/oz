@@ -1094,7 +1094,8 @@ fn build_memory_block(app: &AppHandle, user_message: &str) -> String {
 
 // ═══════════════ Voix : STT whisper local + TTS système ═══════════════
 
-use futures_util::StreamExt;
+use futures_util::{SinkExt, StreamExt};
+use tokio_tungstenite::tungstenite::Message as WsMessage;
 use whisper_rs::{
     FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters,
 };
@@ -1177,8 +1178,107 @@ fn wav_header(data_len: u32, sample_rate: u32) -> Vec<u8> {
 }
 
 #[tauri::command]
-async fn speak(app: AppHandle, text: String) -> Result<(), String> {
+async fn speak(
+    app: AppHandle,
+    text: String,
+    on_chunk: tauri::ipc::Channel<String>,
+) -> Result<(), String> {
     let cfg = app.state::<BrainState>().config.lock().unwrap().clone();
+
+    // ── Voix Gemini LIVE (audio_model = "gemini-live:Kore") ──
+    // WebSocket persistant : l'audio sort par chunks PENDANT la génération,
+    // c'est du speech-to-speech natif, pas du TTS séquentiel.
+    if cfg.audio_model.starts_with("gemini-live") {
+        let voice = cfg.audio_model.split(':').nth(1).unwrap_or("Kore").to_string();
+        let key = cfg.api_key.clone();
+
+        // interruption de la voix en cours
+        if let Ok(mut guard) = TTS_CHILD.lock() {
+            if let Some(old) = guard.as_mut() {
+                let _ = old.kill();
+                let _ = old.wait();
+            }
+            *guard = None;
+        }
+
+        let _ = on_chunk.send("__RESET__".into());
+        let url = format!(
+            "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key={}",
+            key
+        );
+        let (mut ws, _) = tokio_tungstenite::connect_async(url.as_str())
+            .await
+            .map_err(|e| format!("Gemini Live : connexion échouée ({e})"))?;
+
+        // Setup : modèle, voix, modalités audio
+        let setup = serde_json::json!({
+            "setup": {
+                "model": "models/gemini-2.0-flash-live-001",
+                "generationConfig": {"responseModalities": ["AUDIO"]},
+                "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}}
+            }
+        });
+        ws.send(WsMessage::Text(setup.to_string()))
+            .await
+            .map_err(|e| e.to_string())?;
+
+        // Attendre setupComplete, puis envoyer le tour de parole
+        loop {
+            let msg = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                ws.next(),
+            )
+            .await
+            .map_err(|_| "Gemini Live : timeout setup".to_string())?;
+            match msg {
+                Some(Ok(WsMessage::Text(t))) if t.contains("setupComplete") => break,
+                Some(Ok(_)) => continue,
+                Some(Err(e)) => return Err(format!("Gemini Live : {e}")),
+                None => return Err("Gemini Live : connexion fermée".into()),
+            }
+        }
+
+        let turn = serde_json::json!({
+            "clientContent": {
+                "turns": [{"role": "user", "parts": [{"text": text}]}],
+                "turnComplete": true
+            }
+        });
+        ws.send(WsMessage::Text(turn.to_string()))
+            .await
+            .map_err(|e| e.to_string())?;
+
+        // Stream des chunks audio
+        loop {
+            let msg = tokio::time::timeout(
+                std::time::Duration::from_secs(20),
+                ws.next(),
+            )
+            .await
+            .map_err(|_| "Gemini Live : timeout génération".to_string())?;
+            match msg {
+                Some(Ok(WsMessage::Text(t))) => {
+                    let Ok(v) = serde_json::from_str::<serde_json::Value>(&t) else {
+                        continue;
+                    };
+                    if let Some(parts) = v["serverContent"]["modelTurn"]["parts"].as_array() {
+                        for part in parts {
+                            if let Some(d) = part["inlineData"]["data"].as_str() {
+                                let _ = on_chunk.send(d.to_string());
+                            }
+                        }
+                    }
+                    if v["serverContent"]["turnComplete"].as_bool() == Some(true) {
+                        break;
+                    }
+                }
+                Some(Ok(_)) => continue,
+                Some(Err(e)) => return Err(e.to_string()),
+                None => break,
+            }
+        }
+        return Ok(());
+    }
 
     // ── Voix Gemini TTS (audio_model = "gemini-tts:Kore") ──
     if cfg.audio_model.starts_with("gemini") && !cfg.api_key.is_empty() {

@@ -117,6 +117,37 @@ void listen<{ visible: boolean }>("nid://chatbar", (e) => {
   chatBar.style.display = e.payload.visible ? "" : "none";
 });
 
+// ── 0ter. Lecture vocale streaming (Web Audio, chunks PCM 24 kHz) ────
+let audioCtx: AudioContext | null = null;
+function ensureAudio(): AudioContext {
+  if (!audioCtx) audioCtx = new AudioContext();
+  if (audioCtx.state === "suspended") void audioCtx.resume();
+  return audioCtx;
+}
+// débloque l'autoplay dès la première interaction
+window.addEventListener("pointerdown", () => ensureAudio());
+window.addEventListener("keydown", () => ensureAudio());
+
+let nextAudioTime = 0;
+function playPcmChunk(b64: string): void {
+  const ctx = ensureAudio();
+  const bin = atob(b64);
+  const i16 = new Int16Array(bin.length / 2);
+  for (let i = 0; i < i16.length; i++) {
+    i16[i] = (bin.charCodeAt(2 * i) | (bin.charCodeAt(2 * i + 1) << 8)) << 16 >> 16;
+  }
+  const buf = ctx.createBuffer(1, i16.length, 24000);
+  const ch = buf.getChannelData(0);
+  for (let i = 0; i < i16.length; i++) ch[i] = i16[i] / 32768;
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.connect(ctx.destination);
+  const now = ctx.currentTime;
+  if (nextAudioTime < now + 0.05) nextAudioTime = now + 0.05;
+  src.start(nextAudioTime);
+  nextAudioTime += buf.duration;
+}
+
 // ── 1. Clignement des yeux ───────────────────────────────────────────
 function scheduleBlink(): void {
   const delay = 1800 + Math.random() * 3200;
@@ -256,7 +287,12 @@ async function converse(text: string): Promise<void> {
       () => bubble.classList.add("hidden"),
       Math.min(12000, 2500 + reply.length * 60)
     );
-    void invoke("speak", { text: reply }).catch(() => {});
+    const voiceChan = new Channel<string>();
+    voiceChan.onmessage = (b64) => {
+      if (b64 === "__RESET__") nextAudioTime = 0;
+      else playPcmChunk(b64);
+    };
+    void invoke("speak", { text: reply, onChunk: voiceChan }).catch(() => {});
   } catch (err) {
     say(String(err).slice(0, 90), 6000);
   } finally {
