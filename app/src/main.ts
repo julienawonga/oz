@@ -145,66 +145,6 @@ function say(text: string, duration = 4000): void {
 
 setTimeout(() => say("Salut Julien, je suis Nid ! 🪺"), 800);
 
-// ── 3. Frappe à la porte (permissions) ───────────────────────────────
-interface AppWindow {
-  title: string;
-  process: string;
-}
-type Level = "sanctuary" | "none" | "look" | "act" | "trust";
-
-const asked = new Set<string>();
-let knockOpen = false;
-const key = (w: AppWindow) => `${w.process}::${w.title}`;
-
-function doorUi(w: AppWindow): void {
-  knockOpen = true;
-  bubble.innerHTML =
-    `🚪 Je vois une nouvelle fenêtre :<br><b>${w.title}</b><br>` +
-    `<div id="knock-btns">` +
-    `<button data-lvl="look">👀 Regarder</button>` +
-    `<button data-lvl="none">🚫 Pas maintenant</button>` +
-    `<button data-lvl="sanctuary">🔒 Sanctuaire</button>` +
-    `</div>`;
-  bubble.classList.remove("hidden");
-
-  bubble.querySelectorAll("#knock-btns button").forEach((btn) => {
-    btn.addEventListener("click", async (ev) => {
-      ev.stopPropagation();
-      const lvl = (ev.currentTarget as HTMLElement).dataset.lvl as Level;
-      await invoke("set_permission", { key: key(w), level: lvl });
-      bubble.classList.add("hidden");
-      knockOpen = false;
-      const msg: Record<Level, string> = {
-        look: "Merci, je garderai un œil ! 👀",
-        none: "Pas de souci, je n'y touche pas 👋",
-        sanctuary: "Compris, je ne regarde jamais ! 🔒",
-        act: "D'accord !",
-        trust: "Merci de ta confiance 🤝",
-      };
-      say(msg[lvl]);
-    });
-  });
-}
-
-async function watchWindows(): Promise<void> {
-  if (knockOpen) return;
-  try {
-    const windows = (await invoke("list_windows")) as AppWindow[];
-    for (const w of windows) {
-      if (asked.has(key(w))) continue;
-      asked.add(key(w));
-      const perms = (await invoke("get_permissions")) as Record<string, string>;
-      if (!perms[key(w)]) {
-        doorUi(w);
-        break;
-      }
-    }
-  } catch (err) {
-    console.error("watchWindows:", err);
-  }
-}
-setTimeout(() => setInterval(watchWindows, 4000), 6000);
-
 // ── 4. Chat cérébral (streaming) ─────────────────────────────────────
 let thinking = false;
 
