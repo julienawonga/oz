@@ -57,12 +57,18 @@
 - [ ] Album = spatial memory (memories tied to windows)
 - [ ] Fridge = resource management (models, keys)
 - [ ] Gamified mood/trust (earned furniture)
+- [ ] **Memory lifecycle inspired by AutoHarness** (learn / merge / prune): memories are distilled from real sessions, duplicates fold into one, unused ones die — the library stays clean on its own
+- [ ] **Per-memory ledger**: each creation/update logs its scenario and decision
+- [ ] **Session-open index**: every session starts with a recall of what Nid knows (memory is useless if never surfaced)
 
 ## Key technical decisions
 - **Tauri/Rust**: 33 MB RAM, real-time loop with no Python
 - **Provider-agnostic**: `brain.json` (provider/model/url) — Gemini Live ready to plug
 - **Capability-based security**: the Rust broker filters every action; the LLM decides nothing
 - **Deterministic router**: actions go through Rust keywords, not the LLM (3B reliability)
+
+## Related projects to watch
+- **[AutoHarness](https://github.com/tigerless-labs/autoharness)** (11k ⭐): self-learning skill layer for Claude Code. Validates our core thesis ("the harness does much of the work": same model 42% → 78% on CORE-Bench by changing the harness). Not a competitor (headless, Linux/macOS, no body/voice/permissions) — but its skill lifecycle (learn/merge/prune), per-skill ledger and session-open index are the blueprint for Nid's memory system (step 7).
 
 ## Models available in Ollama
 - `lfm3:latest` ← current (1.7B q4, ~3 s/response)
