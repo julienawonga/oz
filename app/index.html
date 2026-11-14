@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini-Julien</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+  <body>
+    <div id="stage">
+      <canvas id="scene"></canvas>
+      <div id="speech-bubble" class="hidden">Salut ! 🐣</div>
+      <div id="chat-bar">
+        <input id="chat-input" placeholder="Parle à Nid..." autocomplete="off" />
+        <button id="chat-mic" title="Parler">🎤</button>
+        <button id="chat-send">➤</button>
+      </div>
+    </div>
+  </body>
+</html>

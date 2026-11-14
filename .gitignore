@@ -1,0 +1,23 @@
+# Node / frontend
+node_modules/
+dist/
+*.local
+
+# Rust / Tauri
+app/src-tauri/target/
+app/src-tauri/gen/
+
+# Models & local data (never commit these)
+*.gguf
+*.bin
+*.onnx
+app/public/models/*.vrm
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
