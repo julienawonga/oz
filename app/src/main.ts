@@ -385,7 +385,7 @@ async function processAudio(): Promise<void> {
 }
 
 // ── 6. Poses & autonomie (version œuf) ───────────────────────────────
-type PoseName = "idle" | "walk" | "sit" | "lie" | "jump";
+type PoseName = "idle" | "walk" | "sit";
 let pose: PoseName = "idle";
 let poseUntil = 0;
 interface Stroll {
@@ -416,7 +416,7 @@ function overlapsZone(px: number, py: number, pw: number, ph: number): Zone | nu
 
 function applyPose(p: PoseName): void {
   pose = p;
-  robot.classList.remove("pose-sit", "pose-lie", "pose-jump", "pose-glide");
+  robot.classList.remove("pose-sit", "pose-glide");
   robot.classList.remove("talking");
   if (p !== "idle") robot.classList.add(p === "walk" ? "pose-glide" : `pose-${p}`);
 }
@@ -505,19 +505,13 @@ setInterval(() => {
   } else if (r < 0.45) {
     applyPose("sit");
     poseUntil = performance.now() + 6000 + Math.random() * 8000;
-  } else if (r < 0.55) {
-    applyPose("lie");
-    poseUntil = performance.now() + 5000 + Math.random() * 7000;
-  } else if (r < 0.65) {
-    applyPose("jump");
-    setTimeout(() => applyPose("idle"), 500);
   }
   // sinon : il reste tranquille
 }, 5000);
 
 // Fin des poses temporisées + déplacement pendant la marche
 setInterval(() => {
-  if ((pose === "sit" || pose === "lie") && performance.now() > poseUntil) {
+  if (pose === "sit" && performance.now() > poseUntil) {
     applyPose("idle");
   }
   if (pose === "walk" && stroll) {
@@ -558,8 +552,6 @@ setInterval(() => {
 // ── 7. Commandes de pose & émotions ──────────────────────────────────
 const POSE_COMMANDS: Array<[RegExp, PoseName, string]> = [
   [/\b(assis|assois[- ]?toi|s'asseoir|s'assoire|installe[- ]toi)\b/, "sit", "Je m'installe confortablement 🪺"],
-  [/\b(saute|sauter|hop)\b/, "jump", "Hop ! 🐇"],
-  [/\b(allonge|allonger|couche|coucher|sieste|dors)\b/, "lie", "Ahhh, je me repose 😴"],
   [/\b(debout|leve|releve)\b/, "idle", "Me voilà debout ! 🧍"],
 ];
 
