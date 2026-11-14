@@ -33,15 +33,18 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  animation: idle-bounce 2.6s ease-in-out infinite;
   transition: transform 0.35s ease;
   transform-origin: bottom center;
+}
+
+/* La respiration vit sur le CORPS, jamais en conflit avec les poses */
+#robot-body {
+  animation: idle-bounce 2.6s ease-in-out infinite;
 }
 
 /* Poses (appliquées en transform, pilotées par main.ts) */
 #robot.pose-sit {
   transform: scaleY(0.72) translateY(14px);
-  animation: none;
 }
 
 #robot.pose-lie {
@@ -154,10 +157,9 @@ body {
   50%      { transform: translateY(-7px); }
 }
 
-/* Glisse (un œuf ne marche pas, il roule !) : léger roulis + écrasement */
-#robot.pose-glide {
+/* Glisse (un œuf ne marche pas, il roule !) : le roulis vit sur le corps */
+#robot.pose-glide #robot-body {
   animation: glide-wobble 1.1s ease-in-out infinite;
-  transform-origin: bottom center;
 }
 
 @keyframes glide-wobble {
