@@ -174,7 +174,7 @@ async function renderPerms(): Promise<void> {
 
 // ── Cerveau (frigo) ──
 async function renderBrain(): Promise<void> {
-  const cfg = (await invoke("get_brain_config")) as { provider: string; model: string; url: string; vision_model: string };
+  const cfg = (await invoke("get_brain_config")) as { provider: string; model: string; url: string; vision_model: string; audio_model: string };
   content.innerHTML =
     `<div class="section-title">Le cerveau de Nid — LLM-agnostic, changement instantané</div>` +
     `<div class="form">` +

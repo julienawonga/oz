@@ -310,6 +310,8 @@ pub struct BrainConfig {
     pub url: String,
     #[serde(default = "default_vision_model")]
     pub vision_model: String, // modèle vision (captures d'écran)
+    #[serde(default)]
+    pub audio_model: String, // modèle voix (Gemini Live à venir — vide = voix système)
 }
 
 fn default_vision_model() -> String {
@@ -323,6 +325,7 @@ impl Default for BrainConfig {
             model: "llama3.2:3b".into(),
             url: "http://127.0.0.1:11434".into(),
             vision_model: default_vision_model(),
+            audio_model: String::new(),
         }
     }
 }
