@@ -1360,7 +1360,6 @@ static LIVE_TX: tokio::sync::Mutex<Option<WsTx>> = tokio::sync::Mutex::const_new
 static LIVE_CONNECT_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 // chunks micro mis en mémoire pendant l'ouverture de session (zéro mot perdu)
 static MIC_PENDING: tokio::sync::Mutex<Vec<String>> = tokio::sync::Mutex::const_new(Vec::new());
-static MIC_COUNT: tokio::sync::Mutex<usize> = tokio::sync::Mutex::const_new(0);
 
 /// Vide le buffer micro vers la session Live (ordre préservé)
 async fn flush_mic_pending(app: &AppHandle) -> Result<(), String> {
@@ -1590,12 +1589,6 @@ async fn voice_end(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 async fn mic_chunk(app: AppHandle, data: String) -> Result<(), String> {
-    let mut cnt = MIC_COUNT.lock().await;
-    *cnt += 1;
-    let n = *cnt;
-    if n % 10 == 1 {
-        log_event(&app, "voice", &format!("live : {} chunk(s) micro envoyés", n));
-    }
     {
         let cfg = app.state::<BrainState>().config.lock().unwrap().clone();
         if cfg.api_key.is_empty() {
