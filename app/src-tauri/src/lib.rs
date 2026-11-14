@@ -426,8 +426,8 @@ async fn chat(
         // ── Gemini : streaming SSE natif ──
         "gemini" => {
             let url = format!(
-                "https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse&key={}",
-                cfg.model, cfg.api_key
+                "https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse",
+                cfg.model
             );
             // sépare le prompt système (avec bloc mémoire) des tours de conversation
             let (sys, turns): (Vec<&ChatMessage>, Vec<&ChatMessage>) =
@@ -452,6 +452,7 @@ async fn chat(
             let client = reqwest::Client::new();
             let mut resp = client
                 .post(&url)
+                .header("x-goog-api-key", &cfg.api_key)
                 .json(&body)
                 .send()
                 .await
@@ -986,11 +987,12 @@ async fn look_at(
             }]
         });
         let url = format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
-            cfg.vision_model, cfg.api_key
+            "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
+            cfg.vision_model
         );
         let resp = reqwest::Client::new()
             .post(&url)
+            .header("x-goog-api-key", &cfg.api_key)
             .json(&body)
             .send()
             .await
@@ -1278,11 +1280,12 @@ async fn transcribe(samples: Vec<i16>) -> Result<String, String> {
                 }]
             });
             let url = format!(
-                "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
-                model, key
+                "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
+                model
             );
             let resp = reqwest::Client::new()
                 .post(&url)
+                .header("x-goog-api-key", &key)
                 .json(&body)
                 .send()
                 .await
@@ -1371,11 +1374,21 @@ async fn speak(
         }
 
         let _ = on_chunk.send("__RESET__".into());
-        let url = format!(
-            "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key={}",
-            key
-        );
-        let (mut ws, _) = tokio_tungstenite::connect_async(url.as_str())
+        let url = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
+        let req = tokio_tungstenite::tungstenite::http::Request::builder()
+            .uri(url)
+            .header("x-goog-api-key", &key)
+            .header("Host", "generativelanguage.googleapis.com")
+            .header("Connection", "Upgrade")
+            .header("Upgrade", "websocket")
+            .header("Sec-WebSocket-Version", "13")
+            .header(
+                "Sec-WebSocket-Key",
+                tokio_tungstenite::tungstenite::handshake::client::generate_key(),
+            )
+            .body(())
+            .map_err(|e| e.to_string())?;
+        let (mut ws, _) = tokio_tungstenite::connect_async(req)
             .await
             .map_err(|e| format!("Gemini Live : connexion échouée ({e})"))?;
 
@@ -1471,12 +1484,10 @@ async fn speak(
                 "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}}
             }
         });
-        let url = format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key={}",
-            key
-        );
+        let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent";
         let resp = reqwest::Client::new()
-            .post(&url)
+            .post(url)
+            .header("x-goog-api-key", &key)
             .json(&body)
             .send()
             .await
