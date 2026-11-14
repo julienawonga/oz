@@ -367,6 +367,7 @@ async function startMicStream(): Promise<void> {
     micProcessor.connect(mute);
     mute.connect(micAudioCtx.destination);
 
+    let micErr: string | null = null;
     micProcessor.onaudioprocess = (ev) => {
       if (!micRunning) return;
       // si Nid parle, on coupe le micro (anti-écho de sa propre voix)
@@ -380,12 +381,22 @@ async function startMicStream(): Promise<void> {
         const s = f32[Math.floor(i * ratio)] * 32767;
         i16[i] = Math.max(-32768, Math.min(32767, Math.round(s)));
       }
-      void invoke("mic_chunk", { data: b64FromInt16(i16) }).catch(() => {});
+      void invoke("mic_chunk", { data: b64FromInt16(i16) }).catch((err) => {
+        micErr = String(err).slice(0, 100);
+      });
     };
     micRunning = true;
     micBtn.classList.add("recording");
     bubble.textContent = "Je t'écoute... 🎙️";
     bubble.classList.remove("hidden");
+    const errWatch = setInterval(() => {
+      if (micErr) {
+        say("🎙️ " + micErr, 8000);
+        clearInterval(errWatch);
+        void stopMicStream();
+      }
+      if (!micRunning) clearInterval(errWatch);
+    }, 500);
   } catch (err) {
     console.error("micro:", err);
     say("Je n'ai pas accès au micro 🙈", 5000);
