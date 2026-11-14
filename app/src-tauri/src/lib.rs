@@ -1350,6 +1350,7 @@ fn wav_header(data_len: u32, sample_rate: u32) -> Vec<u8> {
 }
 
 use futures_util::stream::{SplitSink, SplitStream};
+use futures_util::SinkExt as _;
 type WsStream = tokio_tungstenite::WebSocketStream<
     tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
 >;
@@ -1478,6 +1479,7 @@ async fn ensure_live_session(app: &AppHandle, key: &str) -> Result<(), String> {
     let reader_app = app.clone();
     tokio::spawn(async move {
         let mut audio_chunks = 0usize;
+        let mut frames = 0usize;
         loop {
             let msg = match rx.next().await {
                 Some(m) => m,
@@ -1491,13 +1493,23 @@ async fn ensure_live_session(app: &AppHandle, key: &str) -> Result<(), String> {
                     voice_emit(&reader_app, "error", "connexion fermée par le serveur");
                     break;
                 }
-                Ok(WsMessage::Ping(_)) => continue,
+                Ok(WsMessage::Ping(p)) => {
+                    log_event(&reader_app, "voice", "live : PING");
+                    if let Some(tx) = LIVE_TX.lock().await.as_mut() {
+                        let _ = tx.send(WsMessage::Pong(p)).await;
+                    }
+                    continue;
+                }
                 Ok(_) => continue,
                 Err(e) => {
                     log_event(&reader_app, "voice", &format!("live : erreur ws : {e}"));
                     break;
                 }
             };
+            frames += 1;
+            if frames <= 20 {
+                log_event(&reader_app, "voice", &format!("live : frame {} : {}", frames, text.chars().take(120).collect::<String>()));
+            }
             let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
 
             if v.get("error").is_some() {
