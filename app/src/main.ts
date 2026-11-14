@@ -142,6 +142,10 @@ void listen<string>("nid://voice-audio", (e) => playPcmChunk(e.payload));
 void listen<string>("nid://voice-error", (e) => {
   say("🎙️ " + String(e.payload).slice(0, 110), 8000);
 });
+void listen<string>("nid://user-text", (e) => {
+  bubble.textContent = "🧑 " + e.payload;
+  bubble.classList.remove("hidden");
+});
 void listen<string>("nid://nid-text", (e) => {
   bubble.textContent = e.payload;
   bubble.classList.remove("hidden");
@@ -326,26 +330,59 @@ async function converse(text: string): Promise<void> {
 }
 
 // ── 5. Voix : micro → whisper → cerveau → TTS ────────────────────────
-let mediaStream: MediaStream | null = null;
-let recorder: MediaRecorder | null = null;
-let audioChunks: Blob[] = [];
-let recording = false;
+// ── Micro STREAMING : ta voix part en continu vers Gemini Live ──────
+let micStream: MediaStream | null = null;
+let micProcessor: ScriptProcessorNode | null = null;
+let micAudioCtx: AudioContext | null = null;
+let micRunning = false;
 
 micBtn.addEventListener("click", (e) => {
   e.stopPropagation();
-  if (recording) void stopRecording();
-  else void startRecording();
+  if (micRunning) void stopMicStream();
+  else void startMicStream();
 });
 
-async function startRecording(): Promise<void> {
+function b64FromInt16(i16: Int16Array): string {
+  const bytes = new Uint8Array(i16.buffer);
+  let bin = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
+}
+
+async function startMicStream(): Promise<void> {
   try {
-    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    audioChunks = [];
-    recorder = new MediaRecorder(mediaStream);
-    recorder.ondataavailable = (ev) => audioChunks.push(ev.data);
-    recorder.onstop = () => void processAudio();
-    recorder.start();
-    recording = true;
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+    });
+    micAudioCtx = new AudioContext();
+    const srcNode = micAudioCtx.createMediaStreamSource(micStream);
+    micProcessor = micAudioCtx.createScriptProcessor(4096, 1, 1);
+    // le processeur doit être connecté à destination, via un gain muet (anti-écho)
+    const mute = micAudioCtx.createGain();
+    mute.gain.value = 0;
+    srcNode.connect(micProcessor);
+    micProcessor.connect(mute);
+    mute.connect(micAudioCtx.destination);
+
+    micProcessor.onaudioprocess = (ev) => {
+      if (!micRunning) return;
+      // si Nid parle, on coupe le micro (anti-écho de sa propre voix)
+      if (nextAudioTime > micAudioCtx!.currentTime + 0.1) return;
+      const f32 = ev.inputBuffer.getChannelData(0);
+      const ratio = micAudioCtx!.sampleRate / 16000;
+      const outLen = Math.floor(f32.length / ratio);
+      if (outLen < 1) return;
+      const i16 = new Int16Array(outLen);
+      for (let i = 0; i < outLen; i++) {
+        const s = f32[Math.floor(i * ratio)] * 32767;
+        i16[i] = Math.max(-32768, Math.min(32767, Math.round(s)));
+      }
+      void invoke("mic_chunk", { data: b64FromInt16(i16) }).catch(() => {});
+    };
+    micRunning = true;
     micBtn.classList.add("recording");
     bubble.textContent = "Je t'écoute... 🎙️";
     bubble.classList.remove("hidden");
@@ -355,40 +392,15 @@ async function startRecording(): Promise<void> {
   }
 }
 
-async function stopRecording(): Promise<void> {
-  recording = false;
+async function stopMicStream(): Promise<void> {
+  micRunning = false;
   micBtn.classList.remove("recording");
-  recorder?.stop();
-  mediaStream?.getTracks().forEach((t) => t.stop());
-}
-
-async function processAudio(): Promise<void> {
-  try {
-    bubble.textContent = "Je réfléchis...";
-    const blob = new Blob(audioChunks);
-    const audioCtx = new AudioContext();
-    const buf = await audioCtx.decodeAudioData(await blob.arrayBuffer());
-
-    const src = buf.getChannelData(0);
-    const ratio = buf.sampleRate / 16000;
-    const outLen = Math.floor(src.length / ratio);
-    const i16 = new Int16Array(outLen);
-    for (let i = 0; i < outLen; i++) {
-      const s = src[Math.floor(i * ratio)] * 32767;
-      i16[i] = Math.max(-32768, Math.min(32767, Math.round(s)));
-    }
-    audioCtx.close();
-
-    const text = await invoke<string>("transcribe", { samples: Array.from(i16) });
-    if (!text) {
-      say("Je n'ai rien entendu 🤔", 4000);
-      return;
-    }
-    await converse(text);
-  } catch (err) {
-    console.error("processAudio:", err);
-    say("Oups, souci d'oreille 🙉", 4000);
-  }
+  micProcessor?.disconnect();
+  micStream?.getTracks().forEach((t) => t.stop());
+  micStream = null;
+  void micAudioCtx?.close();
+  micAudioCtx = null;
+  await invoke("mic_end").catch(() => {}); // fin du flux → Gemini répond
 }
 
 // ── 6. Poses & autonomie (version œuf) ───────────────────────────────
@@ -510,7 +522,7 @@ async function glideTo(tx?: number, ty?: number): Promise<void> {
 
 // Boucle d'autonomie : il vit sa vie quand personne ne l'occupe
 setInterval(() => {
-  if (dragging || thinking || recording || pose !== "idle") return;
+  if (dragging || thinking || micRunning || pose !== "idle") return;
   const r = Math.random();
   if (r < 0.3) {
     void startStroll();

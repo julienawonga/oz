@@ -1393,7 +1393,8 @@ async fn ensure_live_session(app: &AppHandle, key: &str) -> Result<(), String> {
     let setup = serde_json::json!({
         "setup": {
             "model": "models/gemini-3.8-live",
-            "generationConfig": {"responseModalities": ["AUDIO"]}
+            "generationConfig": {"responseModalities": ["AUDIO"]},
+            "inputAudioTranscription": {}
         }
     });
 
@@ -1490,6 +1491,47 @@ async fn voice_end() -> Result<(), String> {
     let msg = serde_json::json!({
         "clientContent": {"turns": [], "turnComplete": true}
     });
+    tx.send(WsMessage::Text(msg.to_string()))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// ═══════════════ Micro streaming → realtimeInput ═══════════════
+// La voix de l'utilisateur part en continu vers Gemini : plus de
+// "enregistrer puis attendre" — transcription et réponse quasi immédiates.
+
+#[tauri::command]
+async fn mic_chunk(app: AppHandle, data: String) -> Result<(), String> {
+    {
+        let cfg = app.state::<BrainState>().config.lock().unwrap().clone();
+        if cfg.api_key.is_empty() {
+            return Err("Pas de clé Gemini dans le frigo 🍽️".into());
+        }
+    }
+    ensure_live_session(&app, &gemini_key_from_state(&app).await).await?; // ouvre la session si absente
+    let mut guard = LIVE_TX.lock().await;
+    let Some(tx) = guard.as_mut() else {
+        return Err("Gemini Live : session absente".into());
+    };
+    let msg = serde_json::json!({
+        "realtimeInput": {
+            "audio": {"mimeType": "audio/pcm;rate=16000", "data": data}
+        }
+    });
+    tx.send(WsMessage::Text(msg.to_string()))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+async fn gemini_key_from_state(app: &AppHandle) -> String {
+    app.state::<BrainState>().config.lock().unwrap().api_key.clone()
+}
+
+#[tauri::command]
+async fn mic_end(app: AppHandle) -> Result<(), String> {
+    let mut guard = LIVE_TX.lock().await;
+    let Some(tx) = guard.as_mut() else { return Ok(()) };
+    let msg = serde_json::json!({"realtimeInput": {"audioStreamEnd": true}});
     tx.send(WsMessage::Text(msg.to_string()))
         .await
         .map_err(|e| e.to_string())
@@ -1655,7 +1697,9 @@ pub fn run() {
             get_facts,
             forget_fact,
             voice_feed,
-            voice_end
+            voice_end,
+            mic_chunk,
+            mic_end
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
