@@ -1,4 +1,5 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
 
 // ── Panneau de contrôle de Nid — l'interface de Julien ───────────────
 // Chat complet, zones, permissions, cerveau, journal.
@@ -46,6 +47,12 @@ async function renderAsync(): Promise<void> {
 
 function renderChat(): void {
   content.innerHTML = `
+    <div class="card" style="margin-bottom:10px">
+      <div class="row">
+        <span>🗑️ Barre de texte de l'œuf</span>
+        <button id="toggle-chatbar" style="border:none;background:var(--accent);color:#fff;border-radius:8px;padding:5px 12px;cursor:pointer;font-size:12px">Masquer</button>
+      </div>
+    </div>
     <div id="chat-log"></div>
     <form id="chat-form">
       <input id="panel-chat-input" placeholder="Écris à Nid..." autocomplete="off" />
@@ -59,6 +66,14 @@ function renderChat(): void {
     log.appendChild(div);
   }
   log.scrollTop = log.scrollHeight;
+
+  let chatbarVisible = true;
+  const toggleBtn = document.getElementById("toggle-chatbar") as HTMLElement | null;
+  toggleBtn?.addEventListener("click", () => {
+    chatbarVisible = !chatbarVisible;
+    toggleBtn.textContent = chatbarVisible ? "Masquer" : "Afficher";
+    void emit("nid://chatbar", { visible: chatbarVisible });
+  });
 
   document.getElementById("chat-form")!.addEventListener("submit", (e) => {
     e.preventDefault();

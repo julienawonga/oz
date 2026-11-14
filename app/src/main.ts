@@ -1,5 +1,6 @@
 import { getCurrentWindow, currentMonitor, PhysicalPosition } from "@tauri-apps/api/window";
 import { invoke, Channel } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 // ── Nid · le petit œuf (2D) ─────────────────────────────────────────
 // Fenêtre transparente, toujours au premier plan, draggable.
@@ -110,6 +111,11 @@ function updatePupils(lx: number, ly: number): void {
     if (pupil) pupil.style.transform = `translate(${dx * 4}px, ${dy * 4}px)`;
   }
 }
+
+// Toggle de la barre de texte depuis le panneau de contrôle
+void listen<{ visible: boolean }>("nid://chatbar", (e) => {
+  chatBar.style.display = e.payload.visible ? "" : "none";
+});
 
 // ── 1. Clignement des yeux ───────────────────────────────────────────
 function scheduleBlink(): void {
