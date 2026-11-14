@@ -311,7 +311,9 @@ pub struct BrainConfig {
     #[serde(default = "default_vision_model")]
     pub vision_model: String, // modèle vision (captures d'écran)
     #[serde(default)]
-    pub audio_model: String, // modèle voix (Gemini Live à venir — vide = voix système)
+    pub audio_model: String, // "" = voix système ; "gemini-tts:Kore" = voix Gemini
+    #[serde(default)]
+    pub api_key: String, // clé Gemini (pour le TTS audio)
 }
 
 fn default_vision_model() -> String {
@@ -326,6 +328,7 @@ impl Default for BrainConfig {
             url: "http://127.0.0.1:11434".into(),
             vision_model: default_vision_model(),
             audio_model: String::new(),
+            api_key: String::new(),
         }
     }
 }
@@ -1156,8 +1159,108 @@ fn transcribe(samples: Vec<i16>) -> Result<String, String> {
 /// (on tue le processus PowerShell du TTS en cours).
 static TTS_CHILD: Mutex<Option<std::process::Child>> = Mutex::new(None);
 
+fn wav_header(data_len: u32, sample_rate: u32) -> Vec<u8> {
+    let mut h = Vec::with_capacity(44);
+    h.extend_from_slice(b"RIFF");
+    h.extend_from_slice(&(36 + data_len).to_le_bytes());
+    h.extend_from_slice(b"WAVEfmt ");
+    h.extend_from_slice(&16u32.to_le_bytes());
+    h.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    h.extend_from_slice(&1u16.to_le_bytes()); // mono
+    h.extend_from_slice(&sample_rate.to_le_bytes());
+    h.extend_from_slice(&(sample_rate * 2).to_le_bytes());
+    h.extend_from_slice(&2u16.to_le_bytes());
+    h.extend_from_slice(&16u16.to_le_bytes());
+    h.extend_from_slice(b"data");
+    h.extend_from_slice(&data_len.to_le_bytes());
+    h
+}
+
 #[tauri::command]
-fn speak(app: AppHandle, text: String) -> Result<(), String> {
+async fn speak(app: AppHandle, text: String) -> Result<(), String> {
+    let cfg = app.state::<BrainState>().config.lock().unwrap().clone();
+
+    // ── Voix Gemini TTS (audio_model = "gemini-tts:Kore") ──
+    if cfg.audio_model.starts_with("gemini") && !cfg.api_key.is_empty() {
+        let voice = cfg.audio_model.split(':').nth(1).unwrap_or("Kore").to_string();
+        let key = cfg.api_key.clone();
+        let tmp = app.path().app_data_dir().unwrap().join("nid-voice.wav");
+
+        // tue la voix en cours (interruption naturelle)
+        if let Ok(mut guard) = TTS_CHILD.lock() {
+            if let Some(old) = guard.as_mut() {
+                let _ = old.kill();
+                let _ = old.wait();
+            }
+            *guard = None;
+        }
+
+        let body = serde_json::json!({
+            "contents": [{"parts": [{"text": text}]}],
+            "generationConfig": {
+                "responseModalities": ["AUDIO"],
+                "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}}
+            }
+        });
+        let url = format!(
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key={}",
+            key
+        );
+        let resp = reqwest::Client::new()
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("Gemini TTS injoignable : {e}"))?;
+        let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+        let Some(audio_b64) = json["candidates"][0]["content"]["parts"][0]["inlineData"]["data"]
+            .as_str()
+        else {
+            return Err("Gemini TTS : pas d'audio dans la réponse".into());
+        };
+        use base64::Engine as _;
+        let pcm = base64::engine::general_purpose::STANDARD
+            .decode(audio_b64)
+            .map_err(|e| e.to_string())?;
+        let mut wav = wav_header(pcm.len() as u32, 24000);
+        wav.extend_from_slice(&pcm);
+        fs::write(&tmp, &wav).map_err(|e| e.to_string())?;
+
+        // Lecture du WAV via MediaPlayer, interruptible
+        let path_uri = format!(
+            "file:///{}/",
+            tmp.to_string_lossy().replace('\\', "/")
+        );
+        let script = format!(
+            "Add-Type -AssemblyName presentationCore; $p = New-Object System.Windows.Media.MediaPlayer; $p.Open([Uri]::new('{}')); Start-Sleep -Milliseconds 400; $p.Play(); Start-Sleep -Seconds 40",
+            path_uri
+        );
+        let _ = script.clone();
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args(["-NoProfile", "-Command", &script]);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000);
+        }
+        match cmd.spawn() {
+            Ok(child) => {
+                if let Ok(mut guard) = TTS_CHILD.lock() {
+                    *guard = Some(child);
+                }
+                if let Ok(mut guard) = TTS_CHILD.lock() {
+                    if let Some(c) = guard.as_mut() {
+                        let _ = c.wait();
+                    }
+                    *guard = None;
+                }
+            }
+            Err(_) => {}
+        }
+        return Ok(());
+    }
+
+    // ── Voix système SAPI (défaut) ──
     let tmp = app.path().app_data_dir().unwrap().join("tts.txt");
     fs::write(&tmp, &text).map_err(|e| e.to_string())?;
     let script = format!(
@@ -1170,37 +1273,14 @@ fn speak(app: AppHandle, text: String) -> Result<(), String> {
         tmp.to_str().unwrap().replace('\\', "\\\\")
     );
     std::thread::spawn(move || {
-        // 1. Tue la voix en cours s'il y en a une
-        if let Ok(mut guard) = TTS_CHILD.lock() {
-            if let Some(old) = guard.as_mut() {
-                let _ = old.kill();
-                let _ = old.wait();
-            }
-            *guard = None;
-        }
-        // 2. Lance la nouvelle voix
         let mut cmd = std::process::Command::new("powershell");
         cmd.args(["-NoProfile", "-Command", &script]);
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+            cmd.creation_flags(0x08000000);
         }
-        match cmd.spawn() {
-            Ok(child) => {
-                if let Ok(mut guard) = TTS_CHILD.lock() {
-                    *guard = Some(child);
-                }
-                // 3. Attend la fin pour libérer le slot
-                if let Ok(mut guard) = TTS_CHILD.lock() {
-                    if let Some(c) = guard.as_mut() {
-                        let _ = c.wait();
-                    }
-                    *guard = None;
-                }
-            }
-            Err(_) => {}
-        }
+        let _ = cmd.output();
     });
     Ok(())
 }
