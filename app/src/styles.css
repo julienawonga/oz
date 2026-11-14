@@ -281,3 +281,117 @@ body {
 #chat-send:hover {
   background: #0369a1;
 }
+
+/* ── La maison 🏠 ── */
+#house {
+  position: absolute;
+  inset: 8px 8px auto 8px;
+  bottom: 44px;
+  background: rgba(255, 253, 245, 0.97);
+  border: 2px solid #b45309;
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 5;
+}
+
+#house.hidden2 {
+  display: none;
+}
+
+#house-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 6px;
+  background: #fef3c7;
+  border-bottom: 1.5px solid #b45309;
+}
+
+#house-tabs button {
+  border: none;
+  background: transparent;
+  font-size: 15px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+#house-tabs button.active {
+  background: #fde68a;
+}
+
+#house-tabs #house-close {
+  margin-left: auto;
+  color: #b45309;
+}
+
+#house-content {
+  padding: 10px;
+  overflow-y: auto;
+  font-size: 12px;
+  color: #0c2340;
+  max-height: 100%;
+}
+
+.house-item {
+  padding: 6px 8px;
+  border-bottom: 1px dashed #e7d8b1;
+  line-height: 1.4;
+}
+
+.house-item b {
+  color: #b45309;
+}
+
+.house-item .ts {
+  color: #92734b;
+  font-size: 10px;
+  margin-left: 6px;
+}
+
+.house-empty {
+  color: #92734b;
+  text-align: center;
+  padding: 14px 0;
+}
+
+.house-form {
+  display: grid;
+  gap: 6px;
+}
+
+.house-form label {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.house-form input,
+.house-form select {
+  border: 1.2px solid #b45309;
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.house-form button {
+  border: none;
+  border-radius: 8px;
+  background: #b45309;
+  color: #fff;
+  padding: 6px;
+  cursor: pointer;
+}
+
+.house-delete {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: #dc2626;
+  float: right;
+}

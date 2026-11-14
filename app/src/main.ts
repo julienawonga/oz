@@ -44,7 +44,21 @@ window.addEventListener("pointermove", (e) => {
   );
 });
 
-window.addEventListener("pointerup", () => (dragging = false));
+window.addEventListener("pointerup", () => {
+  if (!dragging) return;
+  dragging = false;
+  // 🚫 Déposé dans une zone interdite ? Il s'échappe tout seul
+  void (async () => {
+    const win = getCurrentWindow();
+    const [pos, size] = await Promise.all([win.outerPosition(), win.outerSize()]);
+    const bad = overlapsZone(pos.x, pos.y, size.width, size.height);
+    if (bad) {
+      say("🚫 C'est ma zone interdite, je ne reste pas là !", 4000);
+      await glideTo(); // pas de cible → reste sur place MAIS cherche la place libre
+      void glideTo(pos.x + size.width + 20, pos.y); // puis dégage horizontalement
+    }
+  })();
+});
 
 function moveWindowTo(x: number, y: number): void {
   getCurrentWindow().setPosition(new PhysicalPosition(Math.round(x), Math.round(y)));
@@ -205,6 +219,39 @@ document.getElementById("chat-send")!.addEventListener("click", (e) => {
 chatBar.addEventListener("pointerdown", (e) => e.stopPropagation());
 
 async function converse(text: string): Promise<void> {
+  // 🏠 Ouvrir/fermer la maison
+  if (/(maison|ton home|ouvre ta maison|ferme ta maison)/.test(text.toLowerCase())) {
+    toggleHouse();
+    return;
+  }
+
+  // 🗺️ Gestion des zones interdites (locales, persistées)
+  const lowerCmd = text.toLowerCase();
+  if (/(zone interdite|interdis cette zone|interdit ici|zone defensif|zone de défense)/.test(lowerCmd)) {
+    const win = getCurrentWindow();
+    const [pos, size] = await Promise.all([win.outerPosition(), win.outerSize()]);
+    zones.push({ x: pos.x, y: pos.y, w: size.width, h: size.height, label: "interdit" });
+    await invoke("set_zones", { zones });
+    say("Compris, je ne mettrai plus mes pattes ici 🚫", 4500);
+    return;
+  }
+  if (/(autorise cette zone|supprime la zone|permis ici|enlève la zone|enleve la zone)/.test(lowerCmd)) {
+    const win = getCurrentWindow();
+    const [pos, size] = await Promise.all([win.outerPosition(), win.outerSize()]);
+    const before = zones.length;
+    zones = zones.filter((z) => {
+      // garde les zones qui ne chevauchent PAS la position actuelle
+      return !(pos.x < z.x + z.w && pos.x + size.width > z.x && pos.y < z.y + z.h && pos.y + size.height > z.y);
+    });
+    await invoke("set_zones", { zones });
+    say(before !== zones.length ? "D'accord, je peux revenir ici 😌" : "Il n'y a pas de zone interdite ici 🤔", 4500);
+    return;
+  }
+  if (/(montre les zones|mes zones|combien de zones)/.test(lowerCmd)) {
+    say(zones.length === 0 ? "Aucune zone interdite pour l'instant 🌍" : `J'ai ${zones.length} zone(s) interdite(s) en mémoire 🚫`, 4500);
+    return;
+  }
+
   // 👁️ Intention de vision : "regarde mon éditeur", "que vois-tu ?"...
   const lowerFirst = text.toLowerCase();
   const looks = /\b(regarde|regarder|que vois|qu'est[- ]ce que tu vois|décris|decrit)\b/.test(lowerFirst)
@@ -351,6 +398,22 @@ interface Stroll {
 let stroll: Stroll | null = null;
 let moveState = { x: 0, y: 0, scale: 1, maxX: 0 };
 
+// ── Zones interdites (rectangles en pixels physiques) ────────────────
+interface Zone { x: number; y: number; w: number; h: number; label: string; }
+let zones: Zone[] = [];
+void (async () => {
+  try {
+    zones = (await invoke("get_zones")) as Zone[];
+  } catch { zones = []; }
+})();
+
+function overlapsZone(px: number, py: number, pw: number, ph: number): Zone | null {
+  for (const z of zones) {
+    if (px < z.x + z.w && px + pw > z.x && py < z.y + z.h && py + ph > z.y) return z;
+  }
+  return null;
+}
+
 function applyPose(p: PoseName): void {
   pose = p;
   robot.classList.remove("pose-sit", "pose-lie", "pose-jump", "pose-glide");
@@ -365,6 +428,7 @@ async function startStroll(): Promise<void> {
     currentMonitor(),
     win.outerSize(),
   ]);
+  void overlapsZone(pos.x, pos.y, size.width, size.height);
   const scale = mon?.scaleFactor ?? 1;
   const monX = mon?.position?.x ?? 0;
   const monW = mon?.size?.width ?? 1920;
@@ -394,12 +458,40 @@ async function glideTo(tx?: number, ty?: number): Promise<void> {
   const maxX = monX + monW - size.width - 10;
   const maxY = monY + monH - size.height - 10;
   moveState = { x: pos.x, y: pos.y, scale, maxX: Math.max(monX, maxX) };
+
+  // 🚫 Zones interdites : si la cible en chevauche une, on cherche la
+  // position autorisée la plus proche (glissement vertical puis horizontal)
+  const px = tx ?? pos.x;
+  const py = ty ?? pos.y;
+  const pw = size.width;
+  const ph = size.height;
+  let fx = px;
+  let fy = py;
+  if (overlapsZone(fx, fy, pw, ph)) {
+    let found = false;
+    for (let d = 20; d <= 600 && !found; d += 20) {
+      for (const [ox, oy] of [[0, -d], [0, d], [-d, 0], [d, 0], [-d, -d], [d, d], [-d, d], [d, -d]]) {
+        if (!overlapsZone(px + ox, fy + oy, pw, ph)) {
+          fx = px + ox;
+          fy = fy + oy;
+          found = true;
+          break;
+        }
+      }
+    }
+    if (!found) {
+      say("Cette zone m'est totalement interdite 🚫", 4000);
+      return;
+    }
+    say("🚫 C'est ma zone interdite, je glisse juste à côté !", 4000);
+  }
+
   stroll = {
     dir: 0,
     start: performance.now(),
     end: performance.now() + 6000, // garde-fou
-    targetX: tx !== undefined ? Math.max(monX + 10, Math.min(maxX, tx)) : undefined,
-    targetY: ty !== undefined ? Math.max(monY + 10, Math.min(maxY, ty)) : undefined,
+    targetX: fx !== undefined ? Math.max(monX + 10, Math.min(maxX, fx)) : undefined,
+    targetY: fy !== undefined ? Math.max(monY + 10, Math.min(maxY, fy)) : undefined,
   };
   applyPose("walk");
 }
@@ -510,4 +602,119 @@ async function handleMoveCommand(text: string): Promise<boolean> {
   await glideTo(tx, ty);
   say("J'y glisse ! 🥚", 2500);
   return true;
+}
+
+// ── 8. La maison 🏠 : journal, album, porte, frigo ───────────────────
+const house = document.getElementById("house")!;
+const houseContent = document.getElementById("house-content")!;
+let houseTab = "journal";
+
+house.addEventListener("pointerdown", (e) => e.stopPropagation());
+
+function toggleHouse(): void {
+  house.classList.toggle("hidden");
+  house.classList.toggle("hidden2");
+  if (!house.classList.contains("hidden")) {
+    renderHouse();
+  }
+}
+
+document.getElementById("house-btn")!.addEventListener("click", (e) => {
+  e.stopPropagation();
+  toggleHouse();
+});
+document.getElementById("house-close")!.addEventListener("click", () => {
+  house.classList.add("hidden");
+  house.classList.add("hidden2");
+});
+house.querySelectorAll("#house-tabs button[data-tab]").forEach((btn) => {
+  btn.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    houseTab = (ev.currentTarget as HTMLElement).dataset.tab!;
+    house.querySelectorAll("#house-tabs button[data-tab]").forEach((b) => b.classList.remove("active"));
+    (ev.currentTarget as HTMLElement).classList.add("active");
+    renderHouse();
+  });
+});
+
+function fmtTs(ts: number): string {
+  const d = new Date(ts * 1000);
+  return d.toLocaleDateString("fr") + " " + d.toLocaleTimeString("fr", { hour: "2-digit", minute: "2-digit" });
+}
+
+function renderHouse(): void {
+  void (async () => {
+    if (houseTab === "journal") {
+      const events = (await invoke("get_journal", { limit: 50 })) as Array<{ ts: number; kind: string; detail: string }>;
+      const icons: Record<string, string> = { action: "🖐️", vision: "👁️", door: "🚪" };
+      houseContent.innerHTML = events.length
+        ? events
+            .map((e) => `<div class="house-item">${icons[e.kind] ?? "•"} <b>${e.kind}</b> ${e.detail}<span class="ts">${fmtTs(e.ts)}</span></div>`)
+            .join("")
+        : `<div class="house-empty">Le journal est vide — Nid n'a encore rien fait 🌙</div>`;
+    } else if (houseTab === "album") {
+      const memories = (await invoke("get_memories")) as Array<{ key: string; note: string; ts: number }>;
+      houseContent.innerHTML = memories.length
+        ? memories
+            .map(
+              (m) =>
+                `<div class="house-item"><b>${m.key.split("::")[0]}</b> — ${m.note.slice(0, 140)}<span class="ts">${fmtTs(m.ts)}</span><button class="house-delete" data-key="${m.key}">🗑️</button></div>`
+            )
+            .join("")
+        : `<div class="house-empty">L'album est vide — demandez-lui de "regarder" une fenêtre autorisée 👁️</div>`;
+      houseContent.querySelectorAll(".house-delete").forEach((btn) => {
+        btn.addEventListener("click", async (ev) => {
+          ev.stopPropagation();
+          await invoke("clear_memory", { key: (ev.currentTarget as HTMLElement).dataset.key });
+          renderHouse();
+        });
+      });
+    } else if (houseTab === "door") {
+      const perms = (await invoke("get_permissions")) as Record<string, string>;
+      const entries = Object.entries(perms);
+      houseContent.innerHTML = entries.length
+        ? entries
+            .map(
+              ([key, level]) =>
+                `<div class="house-item"><b>${key.split("::")[0]}</b> — ${key.split("::")[1]?.slice(0, 40)}<br>` +
+                `<select data-key="${key}">` +
+                ["sanctuary", "none", "look", "act", "trust"]
+                  .map((l) => `<option value="${l}"${l === level ? " selected" : ""}>${l}</option>`)
+                  .join("") +
+                `</select></div>`
+            )
+            .join("")
+        : `<div class="house-empty">La porte est vide — les permissions arrivent quand les fenêtres frappent 🚪</div>`;
+      houseContent.querySelectorAll("select").forEach((sel) => {
+        sel.addEventListener("change", async (ev) => {
+          await invoke("set_permission", {
+            key: (ev.currentTarget as HTMLSelectElement).dataset.key,
+            level: (ev.currentTarget as HTMLSelectElement).value,
+          });
+        });
+      });
+    } else if (houseTab === "fridge") {
+      const cfg = (await invoke("get_brain_config")) as { provider: string; model: string; url: string; vision_model: string };
+      houseContent.innerHTML =
+        `<div class="house-form">` +
+        `<label>Provider <input id="f-provider" value="${cfg.provider}"></label>` +
+        `<label>Modèle <input id="f-model" value="${cfg.model}"></label>` +
+        `<label>URL <input id="f-url" value="${cfg.url}"></label>` +
+        `<label>Vision <input id="f-vision" value="${cfg.vision_model}"></label>` +
+        `<button id="f-save">🍽️ Ranger dans le frigo</button>` +
+        `</div>`;
+      document.getElementById("f-save")!.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        await invoke("set_brain_config", {
+          config: {
+            provider: (document.getElementById("f-provider") as HTMLInputElement).value,
+            model: (document.getElementById("f-model") as HTMLInputElement).value,
+            url: (document.getElementById("f-url") as HTMLInputElement).value,
+            vision_model: (document.getElementById("f-vision") as HTMLInputElement).value,
+          },
+        });
+        say("C'est rangé dans le frigo ! 🍽️", 3000);
+      });
+    }
+  })();
 }

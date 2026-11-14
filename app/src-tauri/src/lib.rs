@@ -264,8 +264,10 @@ fn set_permission(
         let mut perms = state.0.lock().unwrap();
         if level == "none" {
             perms.0.remove(&key); // pas de permission = pas d'entrée
+            log_event(&app, "door", &format!("refusé : {}", key));
         } else {
-            perms.0.insert(key, level);
+            perms.0.insert(key.clone(), level.clone());
+            log_event(&app, "door", &format!("permission {} accordée : {}", level, key));
         }
         save_permissions(&app, &perms)?;
     }
@@ -369,13 +371,14 @@ fn get_brain_config(state: State<'_, BrainState>) -> BrainConfig {
 async fn chat(
     state: State<'_, BrainState>,
     broker: State<'_, BrokerState>,
+    app: AppHandle,
     user_message: String,
     on_chunk: tauri::ipc::Channel<String>,
 ) -> Result<String, String> {
     // 0. Routeur d'intentions : les actions ne passent JAMAIS par le LLM.
     // Un mot-clé suffit — et c'est le broker qui vérifie les permissions.
     if let Some((action, target)) = detect_action(&user_message) {
-        let text = execute_action(&broker, &action, &target);
+        let text = execute_action(&broker, &app, &action, &target);
         let mut hist = state.history.lock().unwrap();
         hist.push(ChatMessage {
             role: "user".into(),
@@ -552,7 +555,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     PostMessageW, SetForegroundWindow, ShowWindow, SW_RESTORE, WM_CLOSE,
 };
 
-fn execute_action(broker: &BrokerState, action: &str, target: &str) -> String {
+fn execute_action(broker: &BrokerState, app: &AppHandle, action: &str, target: &str) -> String {
     let windows = enumerate_windows();
     match action {
         "list" => {
@@ -606,16 +609,170 @@ fn execute_action(broker: &BrokerState, action: &str, target: &str) -> String {
             unsafe {
                 if action == "close" {
                     let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+                    log_event(app, "action", &format!("fermé « {} »", w.title));
                     format!("Voilà, « {} » est fermé ✅", w.title)
                 } else {
                     ShowWindow(hwnd, SW_RESTORE);
                     let _ = SetForegroundWindow(hwnd);
+                    log_event(app, "action", &format!("mis au premier plan : « {} »", w.title));
                     format!("« {} » est au premier plan 🎯", w.title)
                 }
             }
         }
         _ => "Action inconnue".into(),
     }
+}
+
+// ═══════════════════ La maison : journal + album ═══════════════════
+// 📔 Journal : les quittances — chaque événement (action, vision,
+// permission) est logué en JSONL, auditable.
+// 🖼️ Album : la mémoire par fenêtre — ce que Nid retient de chaque lieu.
+
+fn journal_path(app: &AppHandle) -> std::path::PathBuf {
+    app.path()
+        .app_data_dir()
+        .expect("app_data_dir")
+        .join("journal.jsonl")
+}
+
+fn now_ts() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+fn log_event(app: &AppHandle, kind: &str, detail: &str) {
+    let line = serde_json::json!({
+        "ts": now_ts(),
+        "kind": kind,
+        "detail": detail
+    });
+    if let Ok(mut f) = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(journal_path(app))
+    {
+        use std::io::Write;
+        let _ = writeln!(f, "{}", line);
+    }
+}
+
+#[tauri::command]
+fn get_journal(app: AppHandle, limit: usize) -> Vec<serde_json::Value> {
+    let Ok(content) = fs::read_to_string(journal_path(&app)) else {
+        return Vec::new();
+    };
+    let mut events: Vec<serde_json::Value> = content
+        .lines()
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect();
+    events.reverse(); // du plus récent au plus ancien
+    events.truncate(limit.min(500));
+    events
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Memory {
+    pub key: String, // "process::titre" de la fenêtre
+    pub note: String,
+    pub ts: u64,
+}
+
+fn memories_path(app: &AppHandle) -> std::path::PathBuf {
+    app.path()
+        .app_data_dir()
+        .expect("app_data_dir")
+        .join("memories.json")
+}
+
+fn load_memories(app: &AppHandle) -> Vec<Memory> {
+    fs::read_to_string(memories_path(app))
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn save_memories(app: &AppHandle, memories: &[Memory]) -> Result<(), String> {
+    let path = memories_path(app);
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    fs::write(&path, serde_json::to_string_pretty(memories).unwrap())
+        .map_err(|e| e.to_string())
+}
+
+/// Ajoute/rafraîchit un souvenir : un souvenir par fenêtre, remplacé à chaque vision
+/// (le lifecycle learn/merge/prune complet arrive avec le polissage de l'album).
+fn remember(app: &AppHandle, key: String, note: String) {
+    let mut memories = load_memories(app);
+    memories.retain(|m| m.key != key); // remplace l'ancien souvenir de ce lieu
+    memories.push(Memory { key, note, ts: now_ts() });
+    let _ = save_memories(app, &memories);
+}
+
+#[tauri::command]
+fn add_memory(app: AppHandle, key: String, note: String) -> Result<(), String> {
+    remember(&app, key, note);
+    Ok(())
+}
+
+#[tauri::command]
+fn get_memories(app: AppHandle) -> Vec<Memory> {
+    load_memories(&app)
+}
+
+#[tauri::command]
+fn clear_memory(app: AppHandle, key: String) -> Result<(), String> {
+    let mut memories = load_memories(&app);
+    memories.retain(|m| m.key != key);
+    save_memories(&app, &memories)
+}
+
+// ═══════════════════ Zones interdites de l'écran ═══════════════════
+// Des rectangles (pixels physiques) où Nid refuse d'aller ou de rester.
+// Persistés dans zones.json.
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Zone {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+    pub label: String,
+}
+
+pub struct ZonesState(pub Mutex<Vec<Zone>>);
+
+fn zones_path(app: &AppHandle) -> std::path::PathBuf {
+    app.path()
+        .app_data_dir()
+        .expect("app_data_dir")
+        .join("zones.json")
+}
+
+fn load_zones(app: &AppHandle) -> Vec<Zone> {
+    fs::read_to_string(zones_path(app))
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+fn get_zones(state: State<'_, ZonesState>) -> Vec<Zone> {
+    state.0.lock().unwrap().clone()
+}
+
+#[tauri::command]
+fn set_zones(app: AppHandle, state: State<'_, ZonesState>, zones: Vec<Zone>) -> Result<(), String> {
+    let path = zones_path(&app);
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    fs::write(&path, serde_json::to_string_pretty(&zones).unwrap())
+        .map_err(|e| e.to_string())?;
+    *state.0.lock().unwrap() = zones;
+    Ok(())
 }
 
 // ═══════════════ Vision : capture d'une fenêtre AUTORISÉE ═══════════════
@@ -687,6 +844,7 @@ fn capture_window_png(hwnd: HWND) -> Result<Vec<u8>, String> {
 async fn look_at(
     state: State<'_, BrainState>,
     broker: State<'_, BrokerState>,
+    app: AppHandle,
     target: String,
     question: String,
 ) -> Result<String, String> {
@@ -723,6 +881,7 @@ async fn look_at(
 
     let png = capture_window_png(HWND(w.hwnd as *mut core::ffi::c_void))?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
+    log_event(&app, "vision", &format!("a regardé « {} »", w.title));
 
     let cfg = state.config.lock().unwrap().clone();
     let body = serde_json::json!({
@@ -740,10 +899,10 @@ async fn look_at(
         .await
         .map_err(|e| format!("Ollama injoignable ({e})"))?;
     let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-    Ok(json["response"]
-        .as_str()
-        .unwrap_or("…")
-        .to_string())
+    let desc = json["response"].as_str().unwrap_or("…").to_string();
+    // 🖼️ Auto-mémoire : il retient ce qu'il a vu de ce lieu
+    remember(&app, w.key(), desc.chars().take(300).collect());
+    Ok(desc)
 }
 
 // ═══════════════ Voix : STT whisper local + TTS système ═══════════════
@@ -876,6 +1035,7 @@ pub fn run() {
                 config: Mutex::new(brain),
                 history: Mutex::new(Vec::new()),
             });
+            app.manage(ZonesState(Mutex::new(load_zones(app.handle()))));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -888,7 +1048,13 @@ pub fn run() {
             set_brain_config,
             transcribe,
             speak,
-            look_at
+            look_at,
+            get_zones,
+            set_zones,
+            get_journal,
+            add_memory,
+            get_memories,
+            clear_memory
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
