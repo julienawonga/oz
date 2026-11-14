@@ -42,7 +42,11 @@ npm install
 npm run tauri dev
 ```
 
-Requirements: Rust, Node, Ollama (`ollama pull lfm3:latest`), and a whisper model at `%APPDATA%/com.julienawonga.nid/models/ggml-base.bin`.
+First run — download the local STT model (one time, ~148 MB):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-models.ps1
+```
 
 > **Avatar model**: Nid loads any VRM avatar. Drop your `.vrm` file at `app/public/models/robot.vrm` (the file is not committed — pick one on [VRoid Hub](https://hub.vroid.com) respecting its license, or create one with [VRoid Studio](https://vroid.com/studio)).
 
