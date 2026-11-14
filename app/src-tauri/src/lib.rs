@@ -20,9 +20,11 @@ use windows::Win32::System::Threading::{
     PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetCursorPos, GetWindowTextLengthW, GetWindowTextW,
-    GetWindowThreadProcessId, IsWindowVisible,
+    EnumWindows, GetCursorPos, GetForegroundWindow, GetWindowTextLengthW, GetWindowTextW,
+    GetWindowThreadProcessId, GetWindowRect, IsWindowVisible,
 };
+use windows::Win32::Storage::Xps::{PrintWindow, PRINT_WINDOW_FLAGS};
+const PW_RENDERFULLCONTENT: PRINT_WINDOW_FLAGS = PRINT_WINDOW_FLAGS(2u32);
 
 // ═══════════════════════ Énumération des fenêtres ═══════════════════════
 
@@ -304,6 +306,12 @@ pub struct BrainConfig {
     pub provider: String, // "ollama" | (plus tard : "gemini", "openai"...)
     pub model: String,
     pub url: String,
+    #[serde(default = "default_vision_model")]
+    pub vision_model: String, // modèle vision (captures d'écran)
+}
+
+fn default_vision_model() -> String {
+    "moondream:latest".into()
 }
 
 impl Default for BrainConfig {
@@ -312,6 +320,7 @@ impl Default for BrainConfig {
             provider: "ollama".into(),
             model: "llama3.2:3b".into(),
             url: "http://127.0.0.1:11434".into(),
+            vision_model: default_vision_model(),
         }
     }
 }
@@ -609,6 +618,134 @@ fn execute_action(broker: &BrokerState, action: &str, target: &str) -> String {
     }
 }
 
+// ═══════════════ Vision : capture d'une fenêtre AUTORISÉE ═══════════════
+// LE point du contrat : le broker vérifie la permission AVANT la capture.
+// Un sanctuaire ne peut jamais être capturé, même si le LLM le demande.
+
+use base64::Engine as _;
+use windows::Win32::Graphics::Gdi::{
+    BI_RGB, BITMAPINFO, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject,
+    DIB_RGB_COLORS, GetDC, ReleaseDC, SelectObject,
+};
+
+fn capture_window_png(hwnd: HWND) -> Result<Vec<u8>, String> {
+    unsafe {
+        let mut rc = windows::Win32::Foundation::RECT::default();
+        GetWindowRect(hwnd, &mut rc).map_err(|e| e.to_string())?;
+        let w = (rc.right - rc.left).max(1);
+        let h = (rc.bottom - rc.top).max(1);
+
+        let hdc_screen = GetDC(None);
+        let hdc_mem = CreateCompatibleDC(Some(hdc_screen));
+        let mut bi = BITMAPINFO::default();
+        bi.bmiHeader.biWidth = w;
+        bi.bmiHeader.biHeight = -h; // top-down
+        bi.bmiHeader.biPlanes = 1;
+        bi.bmiHeader.biBitCount = 32;
+        bi.bmiHeader.biCompression = BI_RGB.0;
+        let mut bits: *mut core::ffi::c_void = std::ptr::null_mut();
+        let hbm = CreateDIBSection(
+            Some(hdc_mem),
+            &bi,
+            DIB_RGB_COLORS,
+            &mut bits,
+            None,
+            0,
+        )
+        .map_err(|e| e.to_string())?;
+        let old = SelectObject(hdc_mem, hbm.into());
+        let ok = PrintWindow(hwnd, hdc_mem, PW_RENDERFULLCONTENT).as_bool();
+
+        // BGRA → RGBA
+        let len = (w * h * 4) as usize;
+        let slice = std::slice::from_raw_parts(bits as *const u8, len);
+        let mut rgba = Vec::with_capacity(len);
+        for px in slice.chunks_exact(4) {
+            rgba.extend_from_slice(&[px[2], px[1], px[0], px[3]]);
+        }
+
+        SelectObject(hdc_mem, old);
+        DeleteObject(hbm.into());
+        DeleteDC(hdc_mem);
+        ReleaseDC(None, hdc_screen);
+
+        if !ok {
+            return Err("PrintWindow a échoué".into());
+        }
+        let img = image::RgbaImage::from_raw(w as u32, h as u32, rgba)
+            .ok_or("image invalide")?;
+        let mut png: Vec<u8> = Vec::new();
+        image::DynamicImage::ImageRgba8(img)
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .map_err(|e| e.to_string())?;
+        Ok(png)
+    }
+}
+
+/// Regarde une fenêtre autorisée et décrit ce qu'il voit via le modèle vision.
+#[tauri::command]
+async fn look_at(
+    state: State<'_, BrainState>,
+    broker: State<'_, BrokerState>,
+    target: String,
+    question: String,
+) -> Result<String, String> {
+    let windows = enumerate_windows();
+    let found = if target.trim().is_empty() {
+        // Pas de cible → la fenêtre au premier plan
+        let fg = unsafe { GetForegroundWindow() };
+        windows.into_iter().find(|w| w.hwnd == fg.0 as isize)
+    } else {
+        let q = target.to_lowercase();
+        windows.into_iter().find(|w| {
+            w.title.to_lowercase().contains(&q) || w.process.to_lowercase().contains(&q)
+        })
+    };
+    let Some(w) = found else {
+        return Err(format!("Je ne trouve pas de fenêtre « {} » 🤔", target));
+    };
+
+    // 🔐 LE BROKER DÉCIDE : la capture exige look / act / trust
+    let level = broker
+        .0
+        .lock()
+        .unwrap()
+        .0
+        .get(&w.key())
+        .cloned()
+        .unwrap_or_else(|| "none".into());
+    if !matches!(level.as_str(), "look" | "act" | "trust") {
+        return Err(format!(
+            "Je n'ai pas la permission de regarder « {} » — tu peux me l'accorder à la porte 🚪",
+            w.title
+        ));
+    }
+
+    let png = capture_window_png(HWND(w.hwnd as *mut core::ffi::c_void))?;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
+
+    let cfg = state.config.lock().unwrap().clone();
+    let body = serde_json::json!({
+        "model": cfg.vision_model,
+        "prompt": format!("{} Réponds en français, très brièvement.", question),
+        "images": [b64],
+        "stream": false
+    });
+    let url = format!("{}/api/generate", cfg.url);
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Ollama injoignable ({e})"))?;
+    let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    Ok(json["response"]
+        .as_str()
+        .unwrap_or("…")
+        .to_string())
+}
+
 // ═══════════════ Voix : STT whisper local + TTS système ═══════════════
 
 use futures_util::StreamExt;
@@ -750,7 +887,8 @@ pub fn run() {
             get_brain_config,
             set_brain_config,
             transcribe,
-            speak
+            speak,
+            look_at
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
