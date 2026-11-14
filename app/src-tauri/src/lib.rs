@@ -423,6 +423,83 @@ async fn chat(
     messages.extend(state.history.lock().unwrap().iter().cloned());
 
     match cfg.provider.as_str() {
+        // ── Gemini : streaming SSE natif ──
+        "gemini" => {
+            let url = format!(
+                "https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse&key={}",
+                cfg.model, cfg.api_key
+            );
+            // sépare le prompt système (avec bloc mémoire) des tours de conversation
+            let (sys, turns): (Vec<&ChatMessage>, Vec<&ChatMessage>) =
+                messages.iter().partition(|m| m.role == "system");
+            let system_instruction = serde_json::json!({
+                "parts": sys.iter().map(|m| serde_json::json!({"text": m.content})).collect::<Vec<_>>()
+            });
+            let contents: Vec<serde_json::Value> = turns
+                .iter()
+                .map(|m| {
+                    serde_json::json!({
+                        "role": if m.role == "assistant" { "model" } else { &m.role },
+                        "parts": [{"text": &m.content}]
+                    })
+                })
+                .collect();
+            let body = serde_json::json!({
+                "contents": contents,
+                "systemInstruction": system_instruction,
+                "generationConfig": {"temperature": 0.7}
+            });
+            let client = reqwest::Client::new();
+            let mut resp = client
+                .post(&url)
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| format!("Gemini injoignable ({e})"))?;
+
+            // Flux SSE : lignes "data: {...}"
+            let mut full = String::new();
+            let mut buffer = String::new();
+            let mut stream = resp.bytes_stream();
+            while let Some(chunk) = stream.next().await {
+                let bytes = chunk.map_err(|e| e.to_string())?;
+                buffer.push_str(&String::from_utf8_lossy(&bytes));
+                while let Some(pos) = buffer.find('\n') {
+
+
+                    let line: String = buffer.drain(..=pos).collect();
+                    let line = line.trim();
+                    if !line.starts_with("data: ") { continue; }
+                    let Ok(v) = serde_json::from_str::<serde_json::Value>(&line[6..]) else { continue };
+                    if let Some(tok) = v["candidates"][0]["content"]["parts"][0]["text"].as_str() {
+                        if !tok.is_empty() {
+                            full.push_str(tok);
+                            let _ = on_chunk.send(tok.to_string());
+                        }
+                    }
+                }
+            }
+            state.history.lock().unwrap().push(ChatMessage {
+                role: "assistant".into(),
+                content: full.clone(),
+            });
+
+            // consolidation identique
+            let should = {
+                let mut since = state.since_consolidation.lock().unwrap();
+                *since += 1;
+                *since >= CONSOLIDATION_EVERY
+            };
+            if should {
+                *state.since_consolidation.lock().unwrap() = 0;
+                let exchanges: Vec<ChatMessage> =
+                    state.history.lock().unwrap().iter().rev().take(12).rev().cloned().collect();
+                if exchanges.len() >= 2 {
+                    spawn_consolidation(app, exchanges);
+                }
+            }
+            Ok(full)
+        }
         "ollama" => {
             let url = format!("{}/api/chat", cfg.url);
             let body = serde_json::json!({
@@ -447,6 +524,8 @@ async fn chat(
                 let bytes = chunk.map_err(|e| e.to_string())?;
                 buffer.push_str(&String::from_utf8_lossy(&bytes));
                 while let Some(pos) = buffer.find('\n') {
+
+
                     let line: String = buffer.drain(..=pos).collect();
                     let line = line.trim();
                     if line.is_empty() {
@@ -894,6 +973,38 @@ async fn look_at(
     log_event(&app, "vision", &format!("a regardé « {} »", w.title));
 
     let cfg = state.config.lock().unwrap().clone();
+
+    // ── Gemini vision : le même modèle que la conversation ──
+    if cfg.provider == "gemini" && !cfg.api_key.is_empty() {
+        let body = serde_json::json!({
+            "contents": [{
+                "role": "user",
+                "parts": [
+                    {"text": format!("{} Réponds en français, très brièvement.", question)},
+                    {"inlineData": {"mimeType": "image/png", "data": b64}}
+                ]
+            }]
+        });
+        let url = format!(
+            "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+            cfg.vision_model, cfg.api_key
+        );
+        let resp = reqwest::Client::new()
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("Gemini vision injoignable : {e}"))?;
+        let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+        let desc = json["candidates"][0]["content"]["parts"][0]["text"]
+            .as_str()
+            .unwrap_or("…")
+            .to_string();
+        remember(&app, w.key(), desc.chars().take(300).collect());
+        return Ok(desc);
+    }
+
+    // ── Ollama vision (moondream) ──
     let body = serde_json::json!({
         "model": cfg.vision_model,
         "prompt": format!("{} Réponds en français, très brièvement.", question),
@@ -1128,9 +1239,67 @@ fn init_whisper() -> Result<&'static WhisperContext, String> {
     Ok(WHISPER_CTX.get().unwrap())
 }
 
+/// (config Gemini dispo pour les briques vocales)
+fn gemini_voice_config() -> Option<(String, String)> {
+    // lit brain.json directement pour éviter les dépendances de State
+    let dir = std::env::var("APPDATA").ok()?;
+    let path = std::path::PathBuf::from(dir)
+        .join("com.julienawonga.nid")
+        .join("brain.json");
+    let cfg: BrainConfig = serde_json::from_str(&fs::read_to_string(path).ok()?).ok()?;
+    if cfg.api_key.is_empty() { return None; }
+    Some((cfg.model.clone(), cfg.api_key.clone()))
+}
+
+fn bytemuck_cast(samples: &[i16]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(samples.len() * 2);
+    for s in samples {
+        out.extend_from_slice(&s.to_le_bytes());
+    }
+    out
+}
+
 /// Reçoit du PCM 16 kHz mono (Int16) et retourne le texte transcrit.
 #[tauri::command]
-fn transcribe(samples: Vec<i16>) -> Result<String, String> {
+async fn transcribe(samples: Vec<i16>) -> Result<String, String> {
+    // ── Gemini transcription (provider gemini + clé) : plus rapide que whisper local ──
+    {
+        let cfg = gemini_voice_config();
+        if let Some((model, key)) = cfg {
+            use base64::Engine as _;
+            let b64 = base64::engine::general_purpose::STANDARD.encode(bytemuck_cast(&samples));
+            let body = serde_json::json!({
+                "contents": [{
+                    "role": "user",
+                    "parts": [
+                        {"text": "Transcris exactement cet audio en français. Réponds UNIQUEMENT avec la transcription, rien d'autre."},
+                        {"inlineData": {"mimeType": "audio/pcm;rate=16000", "data": b64}}
+                    ]
+                }]
+            });
+            let url = format!(
+                "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+                model, key
+            );
+            let resp = reqwest::Client::new()
+                .post(&url)
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| format!("Gemini STT injoignable : {e}"))?;
+            let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+            let text = json["candidates"][0]["content"]["parts"][0]["text"]
+                .as_str()
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if !text.is_empty() {
+                return Ok(text);
+            }
+            // si Gemini échoue, on retombe sur whisper local ci-dessous
+        }
+    }
+
     let ctx = init_whisper()?;
     let mut state = ctx.create_state().map_err(|e| e.to_string())?;
     let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
