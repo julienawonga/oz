@@ -695,7 +695,7 @@ function renderHouse(): void {
         `<div class="house-form">` +
         `<label>Provider <input id="f-provider" value="${cfg.provider}"></label>` +
         `<label>Modèle <input id="f-model" value="${cfg.model}"></label>` +
-        `<label>URL <input id="f-url" value="${cfg.url}"></label>` +
+        `<label>URL (ollama) <input id="f-url" value="${cfg.url}"></label>` +
         `<label>Vision <input id="f-vision" value="${cfg.vision_model}"></label>` +
         `<label>Audio <input id="f-audio" value="${cfg.audio_model ?? ""}" placeholder="gemini-tts:Kore"></label>` +
         `<label>Clé Gemini <input id="f-key" type="password" value="${cfg.api_key ?? ""}" placeholder="AIza..."></label>` +

@@ -1558,6 +1558,10 @@ async fn speak(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // TLS : installe explicitement le provider crypto (requis par rustls
+    // quand plusieurs crates l'exigent — le WebSocket Gemini Live en a besoin)
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {

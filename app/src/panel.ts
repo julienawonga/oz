@@ -180,7 +180,7 @@ async function renderBrain(): Promise<void> {
     `<div class="form">` +
     `<label>Provider<input id="b-provider" value="${esc(cfg.provider)}"></label>` +
     `<label>Modèle de conversation<input id="b-model" value="${esc(cfg.model)}"></label>` +
-    `<label>URL du provider<input id="b-url" value="${esc(cfg.url)}"></label>` +
+    `<label>URL du provider (ollama)<input id="b-url" value="${esc(cfg.url)}"></label>` +
     `<label>Modèle vision<input id="b-vision" value="${esc(cfg.vision_model)}"></label>` +
     `<label>Modèle audio<input id="b-audio" value="${esc(cfg.audio_model ?? "")}" placeholder="gemini-tts:Kore ou vide = voix système"></label>` +
     `<label>Clé Gemini<input id="b-key" type="password" value="${esc(cfg.api_key ?? "")}" placeholder="AIza... (aistudio.google.com/apikey)"></label>` +
