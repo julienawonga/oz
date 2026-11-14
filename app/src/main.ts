@@ -394,11 +394,18 @@ async function startMicStream(): Promise<void> {
       void invoke("mic_chunk", { data: b64FromInt16(i16) }).catch((err) => {
         micErr = String(err).slice(0, 100);
       });
+      (window as unknown as Record<string, unknown>).__nidDebugChunks =
+        ((window as unknown as Record<string, unknown>).__nidDebugChunks as number ?? 0) + 1;
     };
     micRunning = true;
     micBtn.classList.add("recording");
     bubble.textContent = "Je t'écoute... 🎙️";
     bubble.classList.remove("hidden");
+    (window as unknown as Record<string, unknown>).__nidDebug = {
+      state: "enregistre",
+      chunks: 0,
+      errors: [] as string[],
+    };
     const errWatch = setInterval(() => {
       if (micErr) {
         say("🎙️ " + micErr, 8000);

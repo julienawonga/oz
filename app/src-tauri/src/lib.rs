@@ -1414,13 +1414,21 @@ async fn ensure_live_session(app: &AppHandle, key: &str) -> Result<(), String> {
         tokio_tungstenite::tungstenite::http::HeaderValue::from_str(key)
             .map_err(|e| e.to_string())?,
     );
-    let (mut ws, _) = tokio_tungstenite::connect_async(req)
-        .await
-        .map_err(|e| {
-            log_event(app, "voice", &format!("live : connexion échouée : {e}"));
-            voice_emit(app, "error", &format!("Gemini Live : connexion échouée ({e})"));
-            format!("Gemini Live : connexion échouée ({e})")
-        })?;
+    let (mut ws, _) = tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        tokio_tungstenite::connect_async(req),
+    )
+    .await
+    .map_err(|_| {
+        log_event(app, "voice", "live : connexion en timeout (15s)");
+        voice_emit(app, "error", "Gemini Live : connexion en timeout");
+        "Gemini Live : connexion en timeout (15s)".to_string()
+    })?
+    .map_err(|e| {
+        log_event(app, "voice", &format!("live : connexion échouée : {e}"));
+        voice_emit(app, "error", &format!("Gemini Live : connexion échouée ({e})"));
+        format!("Gemini Live : connexion échouée ({e})")
+    })?;
     log_event(app, "voice", "live : websocket connecté");
 
     // ── 1. SETUP : doit être le PREMIER message du flux ──
@@ -1521,12 +1529,20 @@ async fn ensure_live_session(app: &AppHandle, key: &str) -> Result<(), String> {
             if let Some(parts) = v["serverContent"]["modelTurn"]["parts"].as_array() {
                 for part in parts {
                     if let Some(d) = part["inlineData"]["data"].as_str() {
+                        audio_chunks += 1;
+                        if audio_chunks == 1 {
+                            log_event(&reader_app, "voice", "live : premier chunk audio reçu ✅");
+                        }
                         voice_emit(&reader_app, "audio", d);
                     }
                     if let Some(tr) = part["text"].as_str() {
                         voice_emit(&reader_app, "nid-text", tr);
                     }
                 }
+            }
+            if v["serverContent"]["turnComplete"].as_bool() == Some(true) {
+                log_event(&reader_app, "voice", &format!("live : tour terminé ({} chunk(s) audio)", audio_chunks));
+                voice_emit(&reader_app, "turn-complete", "");
             }
             if let Some(tr) = v["serverContent"]["inputTranscription"]["text"].as_str() {
                 voice_emit(&reader_app, "user-text", tr);
