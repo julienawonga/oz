@@ -2,12 +2,26 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { stopVoice } from "./audio";
 import { state } from "./state";
-import { micBtn, say, showBubble } from "./ui";
+import { micBtn, robot, say, showBubble } from "./ui";
 
 // ── Micro STREAMING : ta voix part en continu vers Gemini Live ───────
 let micStream: MediaStream | null = null;
 let micProcessor: ScriptProcessorNode | null = null;
 let micAudioCtx: AudioContext | null = null;
+
+// ── Arrêt automatique : le micro ne reste jamais ouvert « par oubli » ──
+const SILENCE_AFTER_SPEECH_MS = 8000; // après une phrase
+const SILENCE_BEFORE_SPEECH_MS = 15000; // rien dit depuis l'ouverture
+const VOICE_RMS = 0.015; // énergie minimale pour compter comme « de la voix »
+let lastActivity = 0;
+let heardSomething = false;
+
+function noteActivity(): void {
+  lastActivity = performance.now();
+  heardSomething = true;
+}
+// la transcription renvoyée par le serveur compte aussi comme activité
+void listen<string>("nid://user-text", noteActivity);
 
 micBtn.addEventListener("click", (e) => {
   e.stopPropagation();
@@ -55,8 +69,14 @@ export async function startMicStream(): Promise<void> {
     micProcessor.onaudioprocess = (ev) => {
       if (!state.micRunning) return;
       // si Nid parle, on coupe le micro (anti-écho de sa propre voix)
-      if (state.nidSpeaking) return;
+      if (state.nidSpeaking) {
+        lastActivity = performance.now(); // le silence ne compte qu'une fois Nid tu
+        return;
+      }
       const f32 = ev.inputBuffer.getChannelData(0);
+      let energy = 0;
+      for (let i = 0; i < f32.length; i++) energy += f32[i] * f32[i];
+      if (Math.sqrt(energy / f32.length) > VOICE_RMS) noteActivity();
       const ratio = micAudioCtx!.sampleRate / 16000;
       const outLen = Math.floor(f32.length / ratio);
       if (outLen < 1) return;
@@ -76,6 +96,9 @@ export async function startMicStream(): Promise<void> {
       });
     };
     state.micRunning = true;
+    lastActivity = performance.now();
+    heardSomething = false;
+    robot.classList.add("listening"); // halo visible sur l'œuf, même barre rangée
     micBtn.classList.remove("connecting");
     micBtn.classList.add("recording");
     micBtn.title = "Arrêter l'écoute";
@@ -88,7 +111,16 @@ export async function startMicStream(): Promise<void> {
         clearInterval(errWatch);
         void stopMicStream();
       }
-      if (!state.micRunning) clearInterval(errWatch);
+      if (!state.micRunning) {
+        clearInterval(errWatch);
+        return;
+      }
+      const limit = heardSomething ? SILENCE_AFTER_SPEECH_MS : SILENCE_BEFORE_SPEECH_MS;
+      if (!state.thinking && performance.now() - lastActivity > limit) {
+        clearInterval(errWatch);
+        void stopMicStream();
+        say("Je n'entends plus rien, j'arrête d'écouter.", 3500);
+      }
     }, 500);
   } catch (err) {
     console.error("micro:", err);
@@ -99,6 +131,7 @@ export async function startMicStream(): Promise<void> {
 
 export async function stopMicStream(): Promise<void> {
   state.micRunning = false;
+  robot.classList.remove("listening");
   micBtn.title = "Parler";
   micBtn.classList.remove("recording");
   micProcessor?.disconnect();
