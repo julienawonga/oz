@@ -356,7 +356,7 @@ pub(crate) async fn ensure_live_session(app: &AppHandle, key: &str) -> Result<()
 pub(crate) async fn voice_feed(app: AppHandle, text: String) -> Result<(), String> {
     let key = gemini_key_from_state(&app).await;
     if key.is_empty() {
-        return Err("Pas de clé Gemini dans le frigo 🍽️".into());
+        return Err("Aucune clé Gemini : ajoute-la dans le panneau, onglet Modèles".into());
     }
     ensure_live_session(&app, &key).await?;
     log_event(&app, "voice", &format!("live : feed {} caractère(s) : {}", text.chars().count(), text.chars().take(60).collect::<String>()));
@@ -377,7 +377,7 @@ pub(crate) async fn voice_feed(app: AppHandle, text: String) -> Result<(), Strin
 pub(crate) async fn voice_end(app: AppHandle) -> Result<(), String> {
     let key = gemini_key_from_state(&app).await;
     if key.is_empty() {
-        return Err("Pas de clé Gemini dans le frigo 🍽️".into());
+        return Err("Aucune clé Gemini : ajoute-la dans le panneau, onglet Modèles".into());
     }
     ensure_live_session(&app, &key).await?;
     log_event(&app, "voice", "live : turnComplete envoyé");
@@ -402,7 +402,7 @@ pub(crate) async fn mic_chunk(app: AppHandle, data: String) -> Result<(), String
     {
         let cfg = app.state::<BrainState>().config.lock().unwrap().clone();
         if cfg.api_key.is_empty() {
-            return Err("Pas de clé Gemini dans le frigo 🍽️".into());
+            return Err("Aucune clé Gemini : ajoute-la dans le panneau, onglet Modèles".into());
         }
     }
     // session prête ? → envoie direct. Sinon → bufferise (zéro mot perdu)

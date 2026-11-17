@@ -33,7 +33,7 @@ export function stopVoice(): void {
   releaseVoice();
 }
 
-function releaseVoice(): void {
+export function releaseVoice(): void {
   clearTimeout(ownerTimer);
   state.voiceOwned = false;
   state.voiceClosed = false;

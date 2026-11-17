@@ -1,6 +1,6 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
-import { claimVoice, markVoiceClosed, stopVoice } from "./audio";
+import { claimVoice, markVoiceClosed, releaseVoice, stopVoice } from "./audio";
 import { hideChatBar } from "./chatbar";
 import { handleLocalIntent } from "./intents";
 import { state } from "./state";
@@ -47,12 +47,20 @@ export async function converse(text: string): Promise<void> {
     let acc = "";
     let fed = 0;
     let spokeIntro = false;
+    let voiceErrorShown = false;
     // Live ne doit pas répondre de lui-même : on lui demande de LIRE le texte du cerveau
     const feed = (piece: string): Promise<void> => {
       claimVoice();
       const text = spokeIntro ? piece : READ_ALOUD + piece;
       spokeIntro = true;
-      return invoke<void>("voice_feed", { text }).catch(() => {});
+      return invoke<void>("voice_feed", { text }).catch((err) => {
+        // la voix ne doit jamais échouer en silence : on le dit une fois dans la bulle
+        if (!voiceErrorShown) {
+          voiceErrorShown = true;
+          releaseVoice();
+          say("Voix indisponible : " + String(err).slice(0, 110), 8000);
+        }
+      });
     };
     // phrase complète = ponctuation forte suivie d'un espace/fin, ou saut de ligne
     const SENTENCE = /^[\s\S]*?(?:[.!?…]+(?=\s|$)|\n)/;
