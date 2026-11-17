@@ -37,6 +37,7 @@ windows = { version = "0.61", features = [
 ] }
 image = "0.25"
 base64 = "0.22"
+keyring = { version = "3", features = ["windows-native"] }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
