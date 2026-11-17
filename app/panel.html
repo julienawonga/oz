@@ -3,22 +3,26 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Nid — Panneau de contrôle</title>
+    <title>Nid — Administration</title>
     <link rel="stylesheet" href="/src/panel.css" />
     <script type="module" src="/src/panel.ts" defer></script>
   </head>
   <body>
     <header>
-      <h1>🪺 Nid</h1>
-      <span class="subtitle">Panneau de contrôle</span>
+      <div class="brand">
+        <span class="logo" aria-hidden="true"></span>
+        <h1>Nid</h1>
+      </div>
+      <span class="subtitle">Administration</span>
     </header>
 
-    <nav id="tabs">
-      <button data-tab="chat" class="active">💬 Chat</button>
-      <button data-tab="zones">🗺️ Zones</button>
-      <button data-tab="perms">🚪 Porte</button>
-      <button data-tab="brain">🍽️ Cerveau</button>
-      <button data-tab="journal">📔 Journal</button>
+    <nav id="tabs" role="tablist">
+      <button data-tab="chat" class="active" role="tab">Conversation</button>
+      <button data-tab="perms" role="tab">Permissions</button>
+      <button data-tab="zones" role="tab">Zones</button>
+      <button data-tab="brain" role="tab">Modèles</button>
+      <button data-tab="memory" role="tab">Mémoire</button>
+      <button data-tab="journal" role="tab">Activité</button>
     </nav>
 
     <main id="content"></main>
