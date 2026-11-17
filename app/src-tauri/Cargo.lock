@@ -2754,27 +2754,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
-name = "nid"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "futures-util",
- "image",
- "keyring",
- "reqwest 0.12.28",
- "rustls",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-opener",
- "tokio",
- "tokio-tungstenite",
- "whisper-rs",
- "windows 0.61.3",
-]
-
-[[package]]
 name = "no_std_io2"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3156,6 +3135,27 @@ checksum = "9aa2b01e1d916879f73a53d01d1d6cee68adbb31d6d9177a8cfce093cced1d50"
 dependencies = [
  "futures-core",
  "pin-project-lite",
+]
+
+[[package]]
+name = "oz"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "futures-util",
+ "image",
+ "keyring",
+ "reqwest 0.12.28",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-opener",
+ "tokio",
+ "tokio-tungstenite",
+ "whisper-rs",
+ "windows 0.61.3",
 ]
 
 [[package]]

@@ -21,10 +21,10 @@ export async function renderPerms(): Promise<void> {
 
   let html = pageHead(
     "Permissions",
-    "Niveau d'accès accordé à Nid pour chaque fenêtre. Les règles sont appliquées par le broker ; un sanctuaire n'est jamais visible, même dans les listes."
+    "Niveau d'accès accordé à Oz pour chaque fenêtre. Les règles sont appliquées par le broker ; un sanctuaire n'est jamais visible, même dans les listes."
   );
   if (groups.size === 0) {
-    html += `<div class="panel"><div class="empty"><strong>Aucune permission enregistrée</strong>Elles apparaissent quand Nid rencontre de nouvelles fenêtres.</div></div>`;
+    html += `<div class="panel"><div class="empty"><strong>Aucune permission enregistrée</strong>Elles apparaissent quand Oz rencontre de nouvelles fenêtres.</div></div>`;
   }
   for (const [proc, rows] of [...groups.entries()].sort()) {
     html += `<section class="panel"><div class="panel-head"><h3>${esc(proc)}</h3><span class="badge">${rows.length}</span></div>`;

@@ -21,7 +21,7 @@ function noteActivity(): void {
   heardSomething = true;
 }
 // la transcription renvoyée par le serveur compte aussi comme activité
-void listen<string>("nid://user-text", noteActivity);
+void listen<string>("oz://user-text", noteActivity);
 
 micBtn.addEventListener("click", (e) => {
   e.stopPropagation();
@@ -31,7 +31,7 @@ micBtn.addEventListener("click", (e) => {
 
 // la session Live s'est fermée : on remet l'interface au propre,
 // elle se rouvrira toute seule au prochain message / à la prochaine parole
-void listen<string>("nid://voice-disconnected", () => {
+void listen<string>("oz://voice-disconnected", () => {
   stopVoice();
   if (state.micRunning) {
     void stopMicStream();
@@ -68,9 +68,9 @@ export async function startMicStream(): Promise<void> {
     let micErr: string | null = null;
     micProcessor.onaudioprocess = (ev) => {
       if (!state.micRunning) return;
-      // si Nid parle, on coupe le micro (anti-écho de sa propre voix)
-      if (state.nidSpeaking) {
-        lastActivity = performance.now(); // le silence ne compte qu'une fois Nid tu
+      // si Oz parle, on coupe le micro (anti-écho de sa propre voix)
+      if (state.ozSpeaking) {
+        lastActivity = performance.now(); // le silence ne compte qu'une fois Oz tu
         return;
       }
       const f32 = ev.inputBuffer.getChannelData(0);
@@ -103,7 +103,7 @@ export async function startMicStream(): Promise<void> {
     micBtn.classList.add("recording");
     micBtn.title = "Arrêter l'écoute";
     state.userTurnText = "";
-    stopVoice(); // si Nid parlait, on lui coupe la parole : c'est ton tour
+    stopVoice(); // si Oz parlait, on lui coupe la parole : c'est ton tour
     showBubble("Je t'écoute... 🎙️");
     const errWatch = setInterval(() => {
       if (micErr) {

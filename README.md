@@ -1,8 +1,8 @@
-# 🪺 Nid
+# 🪺 Oz
 
 > *A tiny dweller for your desktop. It knocks before entering.*
 
-**Nid** is an open-source desktop AI companion: a 3D avatar (VRM) that lives on your screen, talks to you with a fully local voice stack, acts on your windows **only with your permission**, and respects the zones you forbid it to enter.
+**Oz** is an open-source desktop AI companion: a 3D avatar (VRM) that lives on your screen, talks to you with a fully local voice stack, acts on your windows **only with your permission**, and respects the zones you forbid it to enter.
 
 ```
 🪺 A dweller, not a gadget

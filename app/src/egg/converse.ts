@@ -40,7 +40,7 @@ export async function converse(text: string): Promise<void> {
   if (await handleLocalIntent(text)) return;
 
   stopVoice(); // une nouvelle question coupe la réponse précédente
-  void emit("nid://chat-line", { role: "user", text }); // miroir dans le panneau
+  void emit("oz://chat-line", { role: "user", text }); // miroir dans le panneau
   setThinking(true);
   try {
     const onChunk = new Channel<string>();
@@ -73,7 +73,7 @@ export async function converse(text: string): Promise<void> {
       say("Hmm, je n'ai rien trouvé à répondre 🤔", 4000);
       return;
     }
-    void emit("nid://chat-line", { role: "nid", text: reply });
+    void emit("oz://chat-line", { role: "oz", text: reply });
     showBubble(reply, { ttl: Math.min(14000, 3000 + reply.length * 60) });
     // gemini-live : on envoie le reste de la phrase puis on CLÔT le tour,
     // sinon le modèle n'ouvre jamais la bouche (voice_end déclenche la parole)

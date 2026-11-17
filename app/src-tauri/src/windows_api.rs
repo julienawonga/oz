@@ -65,7 +65,7 @@ unsafe extern "system" fn enum_callback(hwnd: HWND, lparam: LPARAM) -> BOOL {
                 GetWindowThreadProcessId(hwnd, Some(&mut pid));
                 let process = process_image_name(pid);
                 // On ne s'énumère pas soi-même
-                if process != "nid.exe" && process != "Nid.exe" {
+                if process != "oz.exe" && process != "Oz.exe" {
                     list.push(WindowHandle {
                         hwnd: hwnd.0 as isize,
                         title,

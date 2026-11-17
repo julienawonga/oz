@@ -56,7 +56,7 @@ export async function renderBrain(): Promise<void> {
         vision_model: val("b-vision"), audio_model: val("b-audio"), api_key: val("b-key"),
       },
     });
-    void emit("nid://brain-updated"); // l'œuf relit le mode voix sans redémarrer
+    void emit("oz://brain-updated"); // l'œuf relit le mode voix sans redémarrer
     toast("Configuration enregistrée");
   });
 }

@@ -6,7 +6,7 @@ import { renderPerms } from "./panel/perms";
 import { content, esc, view } from "./panel/util";
 import { renderZones } from "./panel/zones";
 
-// ── Administration de Nid ────────────────────────────────────────────
+// ── Administration d'Oz ────────────────────────────────────────────
 // Conversation, permissions, zones, modèles, mémoire, journal d'activité.
 // Chaque onglet vit dans src/panel/<onglet>.ts ; ce fichier ne fait que
 // le routage. Toutes les données viennent des mêmes commandes Rust que l'œuf.

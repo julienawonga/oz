@@ -1,4 +1,4 @@
-# 📋 State of the art — Desktop AI companion ("Nid")
+# 📋 State of the art — Desktop AI companion ("Oz")
 
 > Research via GitHub API / official READMEs — November 2025
 

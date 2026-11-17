@@ -27,7 +27,7 @@ body {
   cursor: grabbing;
 }
 
-/* ── L'œuf (Nid) ── */
+/* ── L'œuf (Oz) ── */
 #robot {
   position: relative;
   display: flex;
@@ -186,7 +186,7 @@ body {
   text-align: center;
 }
 
-/* "Nid réfléchit" : trois points qui respirent */
+/* "Oz réfléchit" : trois points qui respirent */
 #speech-bubble.typing::before {
   content: "• • •";
   display: block;

@@ -77,7 +77,7 @@ pub(crate) async fn http_error(provider: &str, resp: reqwest::Response) -> Strin
     format!("{provider} {status}{hint} : {detail}")
 }
 
-pub(crate) const SYSTEM_PROMPT: &str = "Tu es Nid, un petit compagnon de bureau vivant dans son nid sur l'écran de Julien. Tu es chaleureux, curieux et légèrement taquin. Tu respectes son territoire : tu ne parles jamais des fenêtres qu'il a déclarées sanctuaires. Réponds TOUJOURS en français, très brièvement (1 à 2 phrases max) car tu parles dans une petite bulle de dialogue. Si Julien te demande une action (fermer, lister des fenêtres...), dis simplement que tu t'en occupes — le harnais s'en charge réellement.";
+pub(crate) const SYSTEM_PROMPT: &str = "Tu es Oz, un petit œuf compagnon de bureau qui vit sur l'écran de Julien. Tu es chaleureux, curieux et légèrement taquin. Tu respectes son territoire : tu ne parles jamais des fenêtres qu'il a déclarées sanctuaires. Réponds TOUJOURS en français, très brièvement (1 à 2 phrases max) car tu parles dans une petite bulle de dialogue. Si Julien te demande une action (fermer, lister des fenêtres...), dis simplement que tu t'en occupes — le harnais s'en charge réellement.";
 
 pub(crate) struct BrainState {
     pub(crate) config: Mutex<BrainConfig>,
@@ -86,7 +86,9 @@ pub(crate) struct BrainState {
 }
 
 // ── Clé API : Gestionnaire d'identifiants Windows (jamais dans brain.json) ──
-const KEYRING_SERVICE: &str = "nid";
+const KEYRING_SERVICE: &str = "oz";
+/// Ancien nom du projet : la clé y est migrée à la première lecture.
+const LEGACY_KEYRING_SERVICE: &str = "nid";
 const KEYRING_USER: &str = "gemini_api_key";
 
 fn keyring_entry() -> Result<keyring::Entry, String> {
@@ -97,8 +99,23 @@ fn keyring_entry() -> Result<keyring::Entry, String> {
 fn read_api_key() -> Result<Option<String>, String> {
     match keyring_entry()?.get_password() {
         Ok(k) => Ok(Some(k)),
-        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(keyring::Error::NoEntry) => migrate_legacy_key(),
         Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Reprend la clé enregistrée sous l'ancien nom du projet, puis supprime l'ancienne entrée.
+fn migrate_legacy_key() -> Result<Option<String>, String> {
+    let Ok(old) = keyring::Entry::new(LEGACY_KEYRING_SERVICE, KEYRING_USER) else {
+        return Ok(None);
+    };
+    match old.get_password() {
+        Ok(k) => {
+            keyring_entry()?.set_password(&k).map_err(|e| e.to_string())?;
+            let _ = old.delete_credential();
+            Ok(Some(k))
+        }
+        Err(_) => Ok(None),
     }
 }
 

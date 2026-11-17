@@ -6,10 +6,10 @@ import { listen } from "@tauri-apps/api/event";
 // circulaires (chacun lit/écrit ici au lieu de s'importer mutuellement).
 
 export const state = {
-  /** Nid réfléchit (requête chat / vision en cours). */
+  /** Oz réfléchit (requête chat / vision en cours). */
   thinking: false,
-  /** La voix de Nid joue : sert de garde anti-écho pour le micro. */
-  nidSpeaking: false,
+  /** La voix d'Oz joue : sert de garde anti-écho pour le micro. */
+  ozSpeaking: false,
   /** Le micro streame vers Gemini Live. */
   micRunning: false,
   /** Glisser-déposer de la fenêtre en cours. */
@@ -43,4 +43,4 @@ function refreshBrainConfig(): void {
     .catch(() => {});
 }
 refreshBrainConfig();
-void listen("nid://brain-updated", refreshBrainConfig);
+void listen("oz://brain-updated", refreshBrainConfig);

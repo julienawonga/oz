@@ -8,7 +8,7 @@ import { accessBadge, accessCard } from "./ui";
 interface AccessReq { app: string; process: string; title: string; need: "look" | "act"; intent: string }
 const accessQueue: AccessReq[] = [];
 
-void listen<Omit<AccessReq, "intent">>("nid://access-request", (e) => {
+void listen<Omit<AccessReq, "intent">>("oz://access-request", (e) => {
   const dup = accessQueue.some((r) => r.process === e.payload.process && r.need === e.payload.need);
   if (!dup) accessQueue.push({ ...e.payload, intent: state.lastUserIntent });
   refreshAccessBadge();
@@ -30,7 +30,7 @@ function openAccessCard(): void {
   if (!req) return;
   const verb = req.need === "act" ? "agir sur" : "regarder";
   document.getElementById("access-text")!.innerHTML =
-    `<b>${esc(req.app)}</b> · ${esc(req.title).slice(0, 60)}<br><span>Nid demande à ${verb} cette application.</span>` +
+    `<b>${esc(req.app)}</b> · ${esc(req.title).slice(0, 60)}<br><span>Oz demande à ${verb} cette application.</span>` +
     (accessQueue.length > 1 ? `<em>${accessQueue.length - 1} autre(s) en attente</em>` : "");
   document.getElementById("access-allow")!.textContent =
     req.need === "act" ? "Autoriser les actions" : "Autoriser la lecture";

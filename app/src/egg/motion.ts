@@ -136,7 +136,7 @@ export async function glideTo(tx?: number, ty?: number): Promise<void> {
 // Boucle d'autonomie : il vit sa vie quand personne ne l'occupe
 setInterval(() => {
   if (
-    state.dragging || state.thinking || state.nidSpeaking || state.micRunning ||
+    state.dragging || state.thinking || state.ozSpeaking || state.micRunning ||
     pose !== "idle" || !accessCard.classList.contains("hidden")
   ) return;
   const r = Math.random();

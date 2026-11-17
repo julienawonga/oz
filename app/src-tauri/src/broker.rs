@@ -38,7 +38,7 @@ impl Permissions {
 /// (au lieu d'un long message dans la bulle). `need` = "look" | "act".
 pub(crate) fn request_access(app: &AppHandle, w: &WindowHandle, need: &str) {
     let _ = app.emit(
-        "nid://access-request",
+        "oz://access-request",
         serde_json::json!({
             "app": friendly_name(&w.process),
             "process": w.process,
@@ -218,7 +218,7 @@ pub(crate) fn execute_action(broker: &BrokerState, app: &AppHandle, action: &str
             };
             let level = broker.0.lock().unwrap().level_for(&w);
             if level == "sanctuary" {
-                // un sanctuaire n'existe pas pour Nid : même réponse que « introuvable »
+                // un sanctuaire n'existe pas pour Oz : même réponse que « introuvable »
                 return format!("Je ne trouve pas de fenêtre « {} »", target);
             }
             if level != "act" && level != "trust" {

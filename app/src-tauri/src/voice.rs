@@ -15,7 +15,7 @@ pub(crate) static WHISPER_CTX: OnceLock<WhisperContext> = OnceLock::new();
 pub(crate) fn whisper_model_path() -> Option<std::path::PathBuf> {
     std::env::var("APPDATA").ok().map(|d| {
         std::path::PathBuf::from(d)
-            .join("com.julienawonga.nid")
+            .join("com.julienawonga.oz")
             .join("models")
             .join("ggml-base.bin")
     })
@@ -175,7 +175,7 @@ pub(crate) async fn flush_mic_pending() -> Result<(), String> {
 
 /// Émet un événement vocal au frontend (audio, reset, erreur, transcription)
 pub(crate) fn voice_emit(app: &AppHandle, event: &str, payload: &str) {
-    let _ = app.emit(&format!("nid://voice-{event}"), payload.to_string());
+    let _ = app.emit(&format!("oz://voice-{event}"), payload.to_string());
 }
 
 /// Ouvre la session Gemini Live si absente (persistante entre les réponses).
@@ -327,7 +327,7 @@ pub(crate) async fn ensure_live_session(app: &AppHandle, key: &str) -> Result<()
                         voice_emit(&reader_app, "audio", d);
                     }
                     if let Some(tr) = part["text"].as_str() {
-                        voice_emit(&reader_app, "nid-text", tr);
+                        voice_emit(&reader_app, "oz-text", tr);
                     }
                 }
             }
@@ -476,7 +476,7 @@ pub(crate) async fn speak(
     if cfg.audio_model.starts_with("gemini") && !cfg.api_key.is_empty() {
         let voice = cfg.audio_model.split(':').nth(1).unwrap_or("Kore").to_string();
         let key = cfg.api_key.clone();
-        let tmp = app.path().app_data_dir().unwrap().join("nid-voice.wav");
+        let tmp = app.path().app_data_dir().unwrap().join("oz-voice.wav");
 
         // tue la voix en cours (interruption naturelle)
         if let Ok(mut guard) = TTS_CHILD.lock() {

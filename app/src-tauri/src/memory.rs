@@ -205,7 +205,7 @@ pub(crate) fn forget_fact(app: AppHandle, ts: u64) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-/// Injection : "ce que Nid sait déjà" — derniers faits + souvenirs spatiaux
+/// Injection : "ce qu'Oz sait déjà" — derniers faits + souvenirs spatiaux
 /// pertinents (Waku : le bloc "company brain").
 pub(crate) fn build_memory_block(app: &AppHandle, user_message: &str) -> String {
     let mut block = String::new();

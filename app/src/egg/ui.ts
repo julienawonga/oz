@@ -44,8 +44,8 @@ export function showBubble(
 export function hideBubbleLater(ms: number): void {
   clearTimeout(bubbleTimer);
   bubbleTimer = window.setTimeout(() => {
-    // ne masque pas la bulle tant que Nid parle encore
-    if (state.nidSpeaking || state.thinking) return hideBubbleLater(1200);
+    // ne masque pas la bulle tant qu'Oz parle encore
+    if (state.ozSpeaking || state.thinking) return hideBubbleLater(1200);
     bubble.classList.add("hidden");
     bubble.classList.remove("typing");
   }, ms);
@@ -56,7 +56,7 @@ export function say(text: string, duration = 4000): void {
   // petite animation de bouche pendant le message (hors voix réelle)
   robot.classList.add("talking");
   window.setTimeout(() => {
-    if (!state.nidSpeaking) robot.classList.remove("talking");
+    if (!state.ozSpeaking) robot.classList.remove("talking");
   }, Math.min(duration, 2500));
 }
 

@@ -31,7 +31,7 @@ export default defineConfig(() => ({
   build: {
     rollupOptions: {
       input: {
-        main: resolve(import.meta.dirname, "index.html"),   // l'oeuf (Nid)
+        main: resolve(import.meta.dirname, "index.html"),   // l'oeuf (Oz)
         panel: resolve(import.meta.dirname, "panel.html"),  // le panneau de controle de Julien
       },
     },

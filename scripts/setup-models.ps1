@@ -1,9 +1,9 @@
-# Nid — one-time setup: downloads the local whisper STT model.
+# Oz — one-time setup: downloads the local whisper STT model.
 # Usage:  powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-models.ps1
 
 $ErrorActionPreference = "Stop"
 
-$modelDir = Join-Path $env:APPDATA "com.julienawonga.nid\models"
+$modelDir = Join-Path $env:APPDATA "com.julienawonga.oz\models"
 $modelPath = Join-Path $modelDir "ggml-base.bin"
 $url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin"
 

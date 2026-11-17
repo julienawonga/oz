@@ -12,7 +12,7 @@ export async function renderMemory(): Promise<void> {
       <div class="meta"><time>${fmtTs(ts)}</time></div></div>
       <button class="btn danger sm" ${attr}>${icon("trash")}Oublier</button></div>`;
 
-  let html = pageHead("Mémoire", "Ce que Nid retient : faits durables issus des conversations et notes sur les fenêtres observées. Chaque élément peut être supprimé.");
+  let html = pageHead("Mémoire", "Ce qu'Oz retient : faits durables issus des conversations et notes sur les fenêtres observées. Chaque élément peut être supprimé.");
   html += `<section class="panel"><div class="panel-head"><h3>Faits durables</h3><span class="badge">${facts.length}</span></div>`;
   html += facts.length
     ? facts.map((f) => row(f.subject, f.content, f.ts, `data-ts="${f.ts}"`)).join("")
@@ -20,7 +20,7 @@ export async function renderMemory(): Promise<void> {
   html += `</section><section class="panel"><div class="panel-head"><h3>Notes sur les fenêtres</h3><span class="badge">${places.length}</span></div>`;
   html += places.length
     ? places.map((m) => row(m.key.split("::")[0], m.note, m.ts, `data-key="${esc(m.key)}"`)).join("")
-    : `<div class="empty"><strong>Aucune note</strong>Elles apparaissent quand Nid observe une fenêtre autorisée.</div>`;
+    : `<div class="empty"><strong>Aucune note</strong>Elles apparaissent quand Oz observe une fenêtre autorisée.</div>`;
   html += `</section>`;
   content.innerHTML = html;
 

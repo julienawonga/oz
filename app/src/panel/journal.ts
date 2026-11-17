@@ -18,7 +18,7 @@ export async function renderJournal(): Promise<void> {
     .map(([k, label]) => `<button class="chip${k === journalFilter ? " active" : ""}" data-f="${k}">${label}</button>`)
     .join("");
 
-  let html = pageHead("Activité", "Historique de ce que Nid a fait, vu et obtenu comme autorisations.") +
+  let html = pageHead("Activité", "Historique de ce qu'Oz a fait, vu et obtenu comme autorisations.") +
     `<div class="filters">${chips}</div><section class="panel">`;
   if (shown.length === 0) {
     html += `<div class="empty"><strong>Aucune activité</strong>Rien à afficher pour ce filtre.</div>`;

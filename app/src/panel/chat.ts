@@ -3,14 +3,14 @@ import { listen } from "@tauri-apps/api/event";
 import { content, view, icon } from "./util";
 
 interface Msg {
-  role: "user" | "nid";
+  role: "user" | "oz";
   text: string;
 }
 let busy = false;
 const chatLog: Msg[] = [];
 
 // Les échanges faits depuis l'œuf apparaissent aussi ici
-void listen<Msg>("nid://chat-line", (e) => {
+void listen<Msg>("oz://chat-line", (e) => {
   chatLog.push(e.payload);
   if (view.tab !== "chat") return;
   const log = document.getElementById("chat-log");
@@ -35,13 +35,13 @@ export function renderChat(): void {
     <div class="chat-wrap">
       <div id="chat-log"></div>
       <form id="chat-form">
-        <input id="panel-chat-input" placeholder="Écrire à Nid" autocomplete="off" aria-label="Message" />
+        <input id="panel-chat-input" placeholder="Écrire à Oz" autocomplete="off" aria-label="Message" />
         <button class="btn primary" type="submit">${icon("send")}Envoyer</button>
       </form>
     </div>`;
   const log = document.getElementById("chat-log")!;
   if (chatLog.length === 0) {
-    log.innerHTML = `<div class="empty"><strong>Aucun message</strong>Les échanges avec Nid, depuis ici ou depuis l'œuf, apparaissent dans cette vue.</div>`;
+    log.innerHTML = `<div class="empty"><strong>Aucun message</strong>Les échanges avec Oz, depuis ici ou depuis l'œuf, apparaissent dans cette vue.</div>`;
   }
   for (const m of chatLog) appendMsg(log, m.role, m.text);
 
@@ -52,18 +52,18 @@ export function renderChat(): void {
     if (!text || busy) return;
     input.value = "";
     chatLog.push({ role: "user", text });
-    void sendToNid(text);
+    void sendToOz(text);
   });
   (document.getElementById("panel-chat-input") as HTMLInputElement).focus();
 }
 
-async function sendToNid(text: string): Promise<void> {
+async function sendToOz(text: string): Promise<void> {
   busy = true;
   renderChat();
   const form = document.getElementById("chat-form")!;
   form.classList.add("busy");
   const log = document.getElementById("chat-log")!;
-  const streaming = appendMsg(log, "nid streaming", "…");
+  const streaming = appendMsg(log, "oz streaming", "…");
 
   const onChunk = new Channel<string>();
   let acc = "";
@@ -76,7 +76,7 @@ async function sendToNid(text: string): Promise<void> {
     const reply = await invoke<string>("chat", { userMessage: text, onChunk });
     streaming.classList.remove("streaming");
     streaming.textContent = reply;
-    chatLog.push({ role: "nid", text: reply });
+    chatLog.push({ role: "oz", text: reply });
   } catch (err) {
     streaming.classList.remove("streaming");
     streaming.classList.add("error");

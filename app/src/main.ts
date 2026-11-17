@@ -9,7 +9,7 @@ import { state } from "./egg/state";
 import { bubble } from "./egg/ui";
 import "./egg/window";
 
-// ── Nid · le petit œuf (2D) ─────────────────────────────────────────
+// ── Oz · le petit œuf (2D) ─────────────────────────────────────────
 // Fenêtre transparente, toujours au premier plan, draggable.
 // Point d'entrée : les modules de src/egg/ s'enregistrent à l'import.
 //   state    état partagé            ui        DOM + bulle

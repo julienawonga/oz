@@ -14,7 +14,7 @@ window.addEventListener("pointerdown", () => ensureAudio());
 window.addEventListener("keydown", () => ensureAudio());
 
 let nextAudioTime = 0;
-let nidSpeakTimer = 0;
+let ozSpeakTimer = 0;
 const liveSources = new Set<AudioBufferSourceNode>();
 
 /** Vide la file audio sans toucher à la propriété de la voix. */
@@ -64,14 +64,14 @@ function routeUserSpeech(): void {
   state.onUserSpeech?.(text);
 }
 
-/** Un seul endroit pilote "Nid parle" : bouche + garde anti-écho. */
+/** Un seul endroit pilote "Oz parle" : bouche + garde anti-écho. */
 function setSpeaking(on: boolean): void {
-  state.nidSpeaking = on;
+  state.ozSpeaking = on;
   robot.classList.toggle("talking", on);
 }
 
-void listen<string>("nid://voice-reset", () => (nextAudioTime = 0));
-void listen<string>("nid://voice-audio", (e) => {
+void listen<string>("oz://voice-reset", () => (nextAudioTime = 0));
+void listen<string>("oz://voice-audio", (e) => {
   if (state.voiceOwned) {
     playPcmChunk(e.payload);
   } else {
@@ -81,12 +81,12 @@ void listen<string>("nid://voice-audio", (e) => {
   }
 });
 // Le serveur coupe son tour (nouvelle entrée) : on vide la file, on garde la parole
-void listen<string>("nid://voice-interrupted", () => stopAudioQueue());
-void listen<string>("nid://voice-error", (e) => {
+void listen<string>("oz://voice-interrupted", () => stopAudioQueue());
+void listen<string>("oz://voice-error", (e) => {
   stopVoice();
   say("🎙️ " + String(e.payload).slice(0, 110), 8000);
 });
-void listen<string>("nid://turn-complete", () => {
+void listen<string>("oz://turn-complete", () => {
   if (state.voiceOwned) {
     // avant voice_end, un turn-complete appartient à la réponse jetée de Live
     if (state.voiceClosed) releaseVoice();
@@ -96,12 +96,12 @@ void listen<string>("nid://turn-complete", () => {
   routeUserSpeech();
   state.routedThisTurn = false; // le tour est fini, le prochain peut être routé
 });
-void listen<string>("nid://user-text", (e) => {
+void listen<string>("oz://user-text", (e) => {
   if (state.routedThisTurn) state.routedThisTurn = false; // nouvelle phrase de Julien
   state.userTurnText += e.payload;
   showBubble("« " + state.userTurnText.trim() + " »", { sticky: true });
 });
-void listen<string>("nid://nid-text", (e) => {
+void listen<string>("oz://oz-text", (e) => {
   if (state.voiceOwned) showBubble(e.payload, { sticky: true });
 });
 
@@ -126,8 +126,8 @@ function playPcmChunk(b64: string): void {
   nextAudioTime += buf.duration;
   // "parle" jusqu'à la fin RÉELLE de l'audio planifié (+ petite marge anti-écho)
   setSpeaking(true);
-  clearTimeout(nidSpeakTimer);
-  nidSpeakTimer = window.setTimeout(
+  clearTimeout(ozSpeakTimer);
+  ozSpeakTimer = window.setTimeout(
     () => setSpeaking(false),
     Math.max(0, (nextAudioTime - ctx.currentTime) * 1000) + 350
   );
