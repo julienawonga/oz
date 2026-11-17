@@ -224,6 +224,34 @@ pub struct Permissions(HashMap<String, String>); // clé: "process::titre" → n
 
 pub struct BrokerState(pub Mutex<Permissions>);
 
+impl Permissions {
+    /// Niveau effectif d'une fenêtre : règle exacte, sinon règle de
+    /// l'application entière (`processus::*`). Un sanctuaire, à l'un ou
+    /// l'autre niveau, l'emporte toujours.
+    fn level_for(&self, w: &WindowHandle) -> String {
+        let exact = self.0.get(&w.key());
+        let app = self.0.get(&format!("{}::*", w.process));
+        if exact.map(String::as_str) == Some("sanctuary") || app.map(String::as_str) == Some("sanctuary") {
+            return "sanctuary".into();
+        }
+        exact.or(app).cloned().unwrap_or_else(|| "none".into())
+    }
+}
+
+/// Demande d'accès : le frontend affiche un badge discret sur l'œuf
+/// (au lieu d'un long message dans la bulle). `need` = "look" | "act".
+fn request_access(app: &AppHandle, w: &WindowHandle, need: &str) {
+    let _ = app.emit(
+        "nid://access-request",
+        serde_json::json!({
+            "app": friendly_name(&w.process),
+            "process": w.process,
+            "title": clean_title(&w.title),
+            "need": need,
+        }),
+    );
+}
+
 fn perms_path(app: &AppHandle) -> std::path::PathBuf {
     app.path()
         .app_data_dir()
@@ -331,6 +359,37 @@ impl Default for BrainConfig {
             api_key: String::new(),
         }
     }
+}
+
+/// Client HTTP partagé : connexion rapide à échouer, pas de requête pendue.
+fn http_client() -> reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .read_timeout(std::time::Duration::from_secs(60))
+                .build()
+                .unwrap_or_default()
+        })
+        .clone()
+}
+
+/// Message d'erreur lisible pour une réponse HTTP non-2xx.
+async fn http_error(provider: &str, resp: reqwest::Response) -> String {
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    let detail = serde_json::from_str::<serde_json::Value>(&body)
+        .ok()
+        .and_then(|v| v["error"]["message"].as_str().map(str::to_string))
+        .unwrap_or_else(|| body.chars().take(120).collect());
+    let hint = match status.as_u16() {
+        400 | 401 | 403 => " — clé API invalide ou non autorisée ? (frigo 🍽️)",
+        404 => " — modèle introuvable ?",
+        429 => " — trop de requêtes, réessaie dans un instant",
+        _ => "",
+    };
+    format!("{provider} {status}{hint} : {detail}")
 }
 
 const SYSTEM_PROMPT: &str = "Tu es Nid, un petit compagnon de bureau vivant dans son nid sur l'écran de Julien. Tu es chaleureux, curieux et légèrement taquin. Tu respectes son territoire : tu ne parles jamais des fenêtres qu'il a déclarées sanctuaires. Réponds TOUJOURS en français, très brièvement (1 à 2 phrases max) car tu parles dans une petite bulle de dialogue. Si Julien te demande une action (fermer, lister des fenêtres...), dis simplement que tu t'en occupes — le harnais s'en charge réellement.";
@@ -449,14 +508,18 @@ async fn chat(
                 "systemInstruction": system_instruction,
                 "generationConfig": {"temperature": 0.7}
             });
-            let client = reqwest::Client::new();
-            let mut resp = client
+            let resp = http_client()
                 .post(&url)
                 .header("x-goog-api-key", &cfg.api_key)
                 .json(&body)
                 .send()
                 .await
-                .map_err(|e| format!("Gemini injoignable ({e})"))?;
+                .map_err(|e| format!("Gemini injoignable ({e}) — connexion internet ?"))?;
+            if !resp.status().is_success() {
+                // le message utilisateur ne doit pas rester orphelin dans l'historique
+                state.history.lock().unwrap().pop();
+                return Err(http_error("Gemini", resp).await);
+            }
 
             // Flux SSE : lignes "data: {...}"
             let mut full = String::new();
@@ -509,13 +572,19 @@ async fn chat(
                 "stream": true,
                 "think": false
             });
-            let client = reqwest::Client::new();
-            let mut resp = client
+            let resp = http_client()
                 .post(&url)
                 .json(&body)
                 .send()
                 .await
-                .map_err(|e| format!("Ollama injoignable ({e}) — serveur lancé ?"))?;
+                .map_err(|e| {
+                    state.history.lock().unwrap().pop();
+                    format!("Ollama injoignable ({e}) — serveur lancé ?")
+                })?;
+            if !resp.status().is_success() {
+                state.history.lock().unwrap().pop();
+                return Err(http_error("Ollama", resp).await);
+            }
 
             // Flux NDJSON : une ligne JSON par token
             let mut full = String::new();
@@ -654,7 +723,7 @@ fn execute_action(broker: &BrokerState, app: &AppHandle, action: &str, target: &
             let mut seen = std::collections::HashSet::new();
             let mut names: Vec<String> = Vec::new();
             for w in windows {
-                if !perms.0.get(&w.key()).map(|l| l != "sanctuary").unwrap_or(true) {
+                if perms.level_for(&w) == "sanctuary" {
                     continue;
                 }
                 let app = friendly_name(&w.process);
@@ -679,21 +748,16 @@ fn execute_action(broker: &BrokerState, app: &AppHandle, action: &str, target: &
                 w.title.to_lowercase().contains(&q) || w.process.to_lowercase().contains(&q)
             });
             let Some(w) = found else {
-                return format!("Je ne trouve pas de fenêtre « {} » 🤔", target);
+                return format!("Je ne trouve pas de fenêtre « {} »", target);
             };
-            let level = broker
-                .0
-                .lock()
-                .unwrap()
-                .0
-                .get(&w.key())
-                .cloned()
-                .unwrap_or_else(|| "none".into());
+            let level = broker.0.lock().unwrap().level_for(&w);
+            if level == "sanctuary" {
+                // un sanctuaire n'existe pas pour Nid : même réponse que « introuvable »
+                return format!("Je ne trouve pas de fenêtre « {} »", target);
+            }
             if level != "act" && level != "trust" {
-                return format!(
-                    "Je n'ai pas la permission d'agir sur « {} » — tu peux me l'accorder à la porte 🚪",
-                    w.title
-                );
+                request_access(app, &w, "act");
+                return format!("J'ai besoin de ton accord pour agir sur {}.", friendly_name(&w.process));
             }
             let hwnd = HWND(w.hwnd as *mut core::ffi::c_void);
             unsafe {
@@ -950,23 +1014,17 @@ async fn look_at(
         })
     };
     let Some(w) = found else {
-        return Err(format!("Je ne trouve pas de fenêtre « {} » 🤔", target));
+        return Err(format!("Je ne trouve pas de fenêtre « {} »", target));
     };
 
     // 🔐 LE BROKER DÉCIDE : la capture exige look / act / trust
-    let level = broker
-        .0
-        .lock()
-        .unwrap()
-        .0
-        .get(&w.key())
-        .cloned()
-        .unwrap_or_else(|| "none".into());
+    let level = broker.0.lock().unwrap().level_for(&w);
+    if level == "sanctuary" {
+        return Err(format!("Je ne trouve pas de fenêtre « {} »", target));
+    }
     if !matches!(level.as_str(), "look" | "act" | "trust") {
-        return Err(format!(
-            "Je n'ai pas la permission de regarder « {} » — tu peux me l'accorder à la porte 🚪",
-            w.title
-        ));
+        request_access(&app, &w, "look");
+        return Err(format!("J'ai besoin de ton accord pour regarder {}.", friendly_name(&w.process)));
     }
 
     let png = capture_window_png(HWND(w.hwnd as *mut core::ffi::c_void))?;
@@ -990,7 +1048,7 @@ async fn look_at(
             "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
             cfg.vision_model
         );
-        let resp = reqwest::Client::new()
+        let resp = http_client()
             .post(&url)
             .header("x-goog-api-key", &cfg.api_key)
             .json(&body)
@@ -1014,7 +1072,7 @@ async fn look_at(
         "stream": false
     });
     let url = format!("{}/api/generate", cfg.url);
-    let client = reqwest::Client::new();
+    let client = http_client();
     let resp = client
         .post(&url)
         .json(&body)
@@ -1114,7 +1172,7 @@ fn spawn_consolidation(app: AppHandle, exchanges: Vec<ChatMessage>) {
             "think": false,
             "format": "json"
         });
-        let Ok(resp) = reqwest::Client::new()
+        let Ok(resp) = http_client()
             .post(format!("{}/api/chat", cfg.url))
             .json(&body)
             .send()
@@ -1283,7 +1341,7 @@ async fn transcribe(samples: Vec<i16>) -> Result<String, String> {
                 "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
                 model
             );
-            let resp = reqwest::Client::new()
+            let resp = http_client()
                 .post(&url)
                 .header("x-goog-api-key", &key)
                 .json(&body)
@@ -1466,7 +1524,7 @@ async fn ensure_live_session(app: &AppHandle, key: &str) -> Result<(), String> {
                 }
             }
             Some(Ok(WsMessage::Ping(p))) => {
-                let _ = ws.send(WsMessage::Pong(p));
+                let _ = ws.send(WsMessage::Pong(p)).await;
             }
             Some(Ok(WsMessage::Close(c))) => {
                 return Err(format!("Gemini Live : fermé pendant le setup ({c:?})"));
@@ -1540,19 +1598,22 @@ async fn ensure_live_session(app: &AppHandle, key: &str) -> Result<(), String> {
                     }
                 }
             }
-            if v["serverContent"]["turnComplete"].as_bool() == Some(true) {
-                log_event(&reader_app, "voice", &format!("live : tour terminé ({} chunk(s) audio)", audio_chunks));
-                voice_emit(&reader_app, "turn-complete", "");
+            if v["serverContent"]["interrupted"].as_bool() == Some(true) {
+                voice_emit(&reader_app, "interrupted", "");
             }
             if let Some(tr) = v["serverContent"]["inputTranscription"]["text"].as_str() {
                 voice_emit(&reader_app, "user-text", tr);
             }
             if v["serverContent"]["turnComplete"].as_bool() == Some(true) {
+                log_event(&reader_app, "voice", &format!("live : tour terminé ({} chunk(s) audio)", audio_chunks));
+                audio_chunks = 0;
                 voice_emit(&reader_app, "turn-complete", "");
             }
         }
         let mut guard = LIVE_TX.lock().await;
         *guard = None;
+        MIC_PENDING.lock().await.clear();
+        voice_emit(&reader_app, "disconnected", "");
     });
     Ok(())
 }
@@ -1651,11 +1712,23 @@ async fn mic_end(app: AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Coupe la voix en cours (Échap) : lecteur Gemini TTS ; le flux Live est
+/// arrêté côté frontend (les sources audio planifiées sont stoppées).
+#[tauri::command]
+fn stop_voice() {
+    if let Ok(mut guard) = TTS_CHILD.lock() {
+        if let Some(old) = guard.as_mut() {
+            let _ = old.kill();
+            let _ = old.wait();
+        }
+        *guard = None;
+    }
+}
+
 #[tauri::command]
 async fn speak(
     app: AppHandle,
     text: String,
-    on_chunk: tauri::ipc::Channel<String>,
 ) -> Result<(), String> {
     let cfg = app.state::<BrainState>().config.lock().unwrap().clone();
 
@@ -1689,7 +1762,7 @@ async fn speak(
             }
         });
         let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent";
-        let resp = reqwest::Client::new()
+        let resp = http_client()
             .post(url)
             .header("x-goog-api-key", &key)
             .json(&body)
@@ -1801,6 +1874,7 @@ pub fn run() {
             set_brain_config,
             transcribe,
             speak,
+            stop_voice,
             look_at,
             get_zones,
             set_zones,
