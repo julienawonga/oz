@@ -7,7 +7,7 @@ void invoke("get_brain_config")
     voiceLiveMode = String((cfg as { audio_model?: string }).audio_model ?? "").startsWith("gemini-live");
   })
   .catch(() => {});
-import { listen } from "@tauri-apps/api/event";
+import { listen, emit } from "@tauri-apps/api/event";
 
 // ── Nid · le petit œuf (2D) ─────────────────────────────────────────
 // Fenêtre transparente, toujours au premier plan, draggable.
@@ -21,6 +21,8 @@ const bubble = document.getElementById("speech-bubble")!;
 const chatBar = document.getElementById("chat-bar")!;
 const chatInput = document.getElementById("chat-input") as HTMLInputElement;
 const micBtn = document.getElementById("chat-mic")!;
+const accessBadge = document.getElementById("access-badge")!;
+const accessCard = document.getElementById("access-card")!;
 const eyeLeft = document.getElementById("eye-left")!;
 const eyeRight = document.getElementById("eye-right")!;
 
@@ -41,7 +43,10 @@ stage.addEventListener("pointerdown", async (e) => {
     scale: mon?.scaleFactor ?? 1,
   };
   dragging = true;
+  downAt = { t: performance.now(), x: e.screenX, y: e.screenY };
 });
+
+let downAt = { t: 0, x: 0, y: 0 };
 
 window.addEventListener("pointermove", (e) => {
   if (!dragging) return;
@@ -52,9 +57,15 @@ window.addEventListener("pointermove", (e) => {
   );
 });
 
-window.addEventListener("pointerup", () => {
+window.addEventListener("pointerup", (e) => {
   if (!dragging) return;
   dragging = false;
+  // simple clic (peu de mouvement, bref) -> ouvre / ferme la barre de saisie
+  const moved = Math.hypot(e.screenX - downAt.x, e.screenY - downAt.y);
+  if (moved < 5 && performance.now() - downAt.t < 350) {
+    toggleChatBar();
+    return;
+  }
   // 🚫 Déposé dans une zone interdite ? Il s'échappe tout seul
   void (async () => {
     const win = getCurrentWindow();
@@ -89,7 +100,9 @@ async function hitTestLoop(): Promise<void> {
     const ly = (cursor.y - outer.y) / scale;
 
     // Zone active : l'œuf + la bulle + la barre de chat
-    const overUi = [robot, bubble, chatBar].some((el) => {
+    const overUi = [robot, bubble, chatBar, accessCard].some((el) => {
+      // un élément masqué ne doit pas bloquer les clics derrière lui
+      if (el.classList.contains("hidden")) return false;
       const r = el.getBoundingClientRect();
       return lx >= r.left && lx <= r.right && ly >= r.top && ly <= r.bottom;
     });
@@ -119,10 +132,36 @@ function updatePupils(lx: number, ly: number): void {
   }
 }
 
-// Toggle de la barre de texte depuis le panneau de contrôle
-void listen<{ visible: boolean }>("nid://chatbar", (e) => {
-  chatBar.style.display = e.payload.visible ? "" : "none";
-});
+// ── Barre de saisie : n'apparaît que sur demande ─────────────────────
+let barIdleTimer = 0;
+
+function showChatBar(): void {
+  chatBar.classList.remove("hidden");
+  chatInput.focus();
+  armBarIdle();
+}
+
+function hideChatBar(): void {
+  clearTimeout(barIdleTimer);
+  chatBar.classList.add("hidden");
+  chatInput.blur();
+}
+
+function toggleChatBar(): void {
+  if (chatBar.classList.contains("hidden")) showChatBar();
+  else hideChatBar();
+}
+
+/** Se range seule après 8 s d'inactivité (sauf micro actif ou texte en cours). */
+function armBarIdle(): void {
+  clearTimeout(barIdleTimer);
+  barIdleTimer = window.setTimeout(() => {
+    if (micRunning || thinking || chatInput.value.trim()) return armBarIdle();
+    hideChatBar();
+  }, 8000);
+}
+chatInput.addEventListener("input", armBarIdle);
+chatInput.addEventListener("focus", armBarIdle);
 
 // ── 0ter. Lecture vocale streaming (Web Audio, chunks PCM 24 kHz) ────
 let audioCtx: AudioContext | null = null;
@@ -138,25 +177,53 @@ window.addEventListener("keydown", () => ensureAudio());
 let nextAudioTime = 0;
 let nidSpeaking = false; // true pendant que la voix de Nid joue
 let nidSpeakTimer = 0;
+const liveSources = new Set<AudioBufferSourceNode>();
+let userTurnText = ""; // transcription de ce que dit Julien (accumulée par tour)
+
+/** Coupe net la voix en cours (interruption / Échap). */
+function stopVoice(): void {
+  for (const src of liveSources) {
+    try { src.stop(); } catch { /* déjà terminé */ }
+  }
+  liveSources.clear();
+  nextAudioTime = 0;
+  setSpeaking(false);
+}
+
+/** Un seul endroit pilote "Nid parle" : bouche + garde anti-écho. */
+function setSpeaking(on: boolean): void {
+  nidSpeaking = on;
+  robot.classList.toggle("talking", on);
+}
 
 void listen<string>("nid://voice-reset", () => (nextAudioTime = 0));
 void listen<string>("nid://voice-audio", (e) => playPcmChunk(e.payload));
+void listen<string>("nid://voice-interrupted", () => stopVoice());
 void listen<string>("nid://voice-error", (e) => {
+  stopVoice();
   say("🎙️ " + String(e.payload).slice(0, 110), 8000);
-  nidSpeaking = false;
+});
+void listen<string>("nid://voice-disconnected", () => {
+  // la session Live s'est fermée : on remet l'interface au propre,
+  // elle se rouvrira toute seule au prochain message / à la prochaine parole
+  stopVoice();
+  if (micRunning) {
+    void stopMicStream();
+    say("La connexion vocale s'est coupée — relance le micro 🎙️", 5000);
+  }
 });
 void listen<string>("nid://turn-complete", () => {
-  nidSpeaking = false;
-  nextAudioTime = 0;
+  userTurnText = "";
+  // l'audio déjà planifié finit de jouer ; la garde se relâche avec lui
 });
 void listen<string>("nid://user-text", (e) => {
-  bubble.textContent = "🧑 " + e.payload;
-  bubble.classList.remove("hidden");
+  userTurnText += e.payload;
+  showBubble("🧑 " + userTurnText.trim(), { sticky: true });
 });
 void listen<string>("nid://nid-text", (e) => {
-  bubble.textContent = e.payload;
-  bubble.classList.remove("hidden");
+  showBubble(e.payload, { sticky: true });
 });
+
 function playPcmChunk(b64: string): void {
   const ctx = ensureAudio();
   const bin = atob(b64);
@@ -173,10 +240,16 @@ function playPcmChunk(b64: string): void {
   const now = ctx.currentTime;
   if (nextAudioTime < now + 0.05) nextAudioTime = now + 0.05;
   src.start(nextAudioTime);
+  liveSources.add(src);
+  src.onended = () => liveSources.delete(src);
   nextAudioTime += buf.duration;
-  nidSpeaking = true;
+  // "parle" jusqu'à la fin RÉELLE de l'audio planifié (+ petite marge anti-écho)
+  setSpeaking(true);
   clearTimeout(nidSpeakTimer);
-  nidSpeakTimer = window.setTimeout(() => (nidSpeaking = false), 600);
+  nidSpeakTimer = window.setTimeout(
+    () => setSpeaking(false),
+    Math.max(0, (nextAudioTime - ctx.currentTime) * 1000) + 350
+  );
 }
 
 // ── 1. Clignement des yeux ───────────────────────────────────────────
@@ -195,15 +268,70 @@ function scheduleBlink(): void {
 scheduleBlink();
 
 // ── 2. Bulle de dialogue ─────────────────────────────────────────────
-function say(text: string, duration = 4000): void {
-  bubble.textContent = text;
-  bubble.classList.remove("hidden");
-  robot.classList.add("talking");
-  setTimeout(() => {
-    bubble.classList.add("hidden");
-    robot.classList.remove("talking");
-  }, duration);
+// Un SEUL minuteur : un nouveau message annule la disparition du précédent
+// (avant, un ancien setTimeout pouvait masquer la bulle toute neuve).
+let bubbleTimer = 0;
+
+/** La bulle reste courte : les deux dernières phrases, 160 caractères max.
+ *  Le texte complet est conservé dans le panneau d'administration. */
+function shortText(text: string): string {
+  const t = text.trim();
+  if (t.length <= 160) return t;
+  const sentences = t.match(/[^.!?…\n]+[.!?…]*\s*/g) ?? [t];
+  let out = sentences.slice(-2).join("").trim();
+  if (out.length > 160) out = "…" + out.slice(-157).trimStart();
+  return out;
 }
+
+function showBubble(text: string, opts: { ttl?: number; sticky?: boolean; typing?: boolean } = {}): void {
+  clearTimeout(bubbleTimer);
+  bubble.classList.toggle("typing", !!opts.typing);
+  bubble.textContent = shortText(text);
+  bubble.classList.remove("hidden");
+  bubble.scrollTop = bubble.scrollHeight; // suit le texte qui défile
+  if (opts.ttl) hideBubbleLater(opts.ttl);
+  else if (opts.sticky) hideBubbleLater(6000 + text.length * 40); // filet de sécurité
+}
+
+function hideBubbleLater(ms: number): void {
+  clearTimeout(bubbleTimer);
+  bubbleTimer = window.setTimeout(() => {
+    // ne masque pas la bulle tant que Nid parle encore
+    if (nidSpeaking || thinking) return hideBubbleLater(1200);
+    bubble.classList.add("hidden");
+    bubble.classList.remove("typing");
+  }, ms);
+}
+
+function say(text: string, duration = 4000): void {
+  showBubble(text, { ttl: duration });
+  // petite animation de bouche pendant le message (hors voix réelle)
+  robot.classList.add("talking");
+  window.setTimeout(() => {
+    if (!nidSpeaking) robot.classList.remove("talking");
+  }, Math.min(duration, 2500));
+}
+
+/** L'état "réfléchit" : bulle à points animés + barre de chat verrouillée. */
+function setThinking(on: boolean): void {
+  thinking = on;
+  chatBar.classList.toggle("busy", on);
+  chatInput.disabled = on;
+  if (on) {
+    showBubble("", { typing: true });
+  }
+}
+
+// Échap : coupe la parole et masque la bulle
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    stopVoice();
+    void invoke("stop_voice").catch(() => {});
+    bubble.classList.add("hidden");
+    closeAccessCard();
+    if (!micRunning) hideChatBar();
+  }
+});
 
 setTimeout(() => say("Salut Julien, je suis Nid ! 🪺"), 800);
 
@@ -214,6 +342,7 @@ async function sendMessage(): Promise<void> {
   const text = chatInput.value.trim();
   if (!text || thinking) return;
   chatInput.value = "";
+  hideChatBar();
   await converse(text);
 }
 
@@ -227,9 +356,10 @@ document.getElementById("chat-send")!.addEventListener("click", (e) => {
 chatBar.addEventListener("pointerdown", (e) => e.stopPropagation());
 
 async function converse(text: string): Promise<void> {
-  // 🏠 Ouvrir/fermer la maison
-  if (/(maison|ton home|ouvre ta maison|ferme ta maison)/.test(text.toLowerCase())) {
-    toggleHouse();
+  lastUserIntent = text;
+  // L'ancienne « maison » vit désormais dans le panneau d'administration
+  if (/(maison|ton home|ouvre ta maison|ferme ta maison)/.test(text.toLowerCase())) {
+    say("Ma mémoire et mon activité sont dans le panneau d'administration.", 4500);
     return;
   }
 
@@ -265,7 +395,7 @@ async function converse(text: string): Promise<void> {
   const looks = /\b(regarde|regarder|que vois|qu'est[- ]ce que tu vois|décris|decrit)\b/.test(lowerFirst)
     && !/\b(ferme|couche|allonge)\b/.test(lowerFirst); // pas de conflit avec les actions
   if (looks) {
-    thinking = true;
+    setThinking(true);
     try {
       // cible : ce qui suit "regarde" (sinon fenêtre au premier plan)
       let target = "";
@@ -275,8 +405,7 @@ async function converse(text: string): Promise<void> {
       }
       if (/\b(écran|ecran)\b/.test(lowerFirst) && !target) target = ""; // tout l'écran → premier plan
 
-      bubble.textContent = "Je regarde... 👁️";
-      bubble.classList.remove("hidden");
+      showBubble("Je regarde... 👁️");
       const desc = await invoke<string>("look_at", {
         target,
         question: "Décris ce que tu vois sur cette capture d'écran.",
@@ -286,7 +415,7 @@ async function converse(text: string): Promise<void> {
     } catch (err) {
       say(String(err).slice(0, 120), 7000);
     } finally {
-      thinking = false;
+      setThinking(false);
     }
     return;
   }
@@ -303,40 +432,57 @@ async function converse(text: string): Promise<void> {
     return;
   }
 
-  bubble.textContent = "…";
-  bubble.classList.remove("hidden");
-  thinking = true;
+  stopVoice(); // une nouvelle question coupe la réponse précédente
+  void emit("nid://chat-line", { role: "user", text }); // miroir dans le panneau
+  setThinking(true);
   try {
     const onChunk = new Channel<string>();
     let acc = "";
     let fed = 0;
+    // phrase complète = ponctuation forte suivie d'un espace/fin, ou saut de ligne
+    const SENTENCE = /^[\s\S]*?(?:[.!?…]+(?=\s|$)|\n)/;
     onChunk.onmessage = (tok) => {
       acc += tok;
-      bubble.textContent = acc;
+      showBubble(acc, { typing: false });
       if (voiceLiveMode) {
-        const pending = acc.slice(fed);
-        const m = pending.match(/^[\s\S]*?[.!?…]+(?:\s|$)|^[\s\S]*\n/);
-        if (m && m[0].trim().length > 2) {
+        for (;;) {
+          const m = acc.slice(fed).match(SENTENCE);
+          if (!m) break;
           fed += m[0].length;
-          void invoke("voice_feed", { text: m[0] }).catch(() => {});
+          if (m[0].trim().length > 2) void invoke("voice_feed", { text: m[0] }).catch(() => {});
         }
       }
     };
     const reply = await invoke<string>("chat", { userMessage: text, onChunk });
-    setTimeout(
-      () => bubble.classList.add("hidden"),
-      Math.min(12000, 2500 + reply.length * 60)
-    );
-    // gemini-live : l'audio est streamé via les events nid://voice-*
-    // (voice_end déclenche la parole) ; autres backends : speak() classique
-    if (!voiceLiveMode) {
+    if (!reply.trim()) {
+      say("Hmm, je n'ai rien trouvé à répondre 🤔", 4000);
+      return;
+    }
+    void emit("nid://chat-line", { role: "nid", text: reply });
+    showBubble(reply, { ttl: Math.min(14000, 3000 + reply.length * 60) });
+    // gemini-live : on envoie le reste de la phrase puis on CLÔT le tour,
+    // sinon le modèle n'ouvre jamais la bouche (voice_end déclenche la parole)
+    if (voiceLiveMode) {
+      const tail = acc.slice(fed).trim();
+      if (tail) await invoke("voice_feed", { text: tail }).catch(() => {});
+      void invoke("voice_end").catch((err) => say("🎙️ " + String(err).slice(0, 100), 6000));
+    } else {
       invoke("speak", { text: reply }).catch(() => {});
     }
   } catch (err) {
-    say(String(err).slice(0, 90), 6000);
+    say(friendlyError(err), 7000);
   } finally {
-    thinking = false;
+    setThinking(false);
   }
+}
+
+/** Erreurs techniques → phrase courte et utile dans la bulle. */
+function friendlyError(err: unknown): string {
+  const msg = String(err);
+  if (/injoignable|connexion|timeout/i.test(msg)) return "Je n'arrive pas à joindre mon cerveau 🧠 — vérifie la connexion ou le frigo 🍽️";
+  if (/clé|api|401|403/i.test(msg)) return "Ma clé API ne passe pas 🔑 — regarde dans le frigo 🍽️";
+  if (/429/.test(msg)) return "Trop de questions d'un coup 😵 — redonne-moi une seconde";
+  return msg.slice(0, 140);
 }
 
 // ── 5. Voix : micro → whisper → cerveau → TTS ────────────────────────
@@ -364,6 +510,7 @@ function b64FromInt16(i16: Int16Array): string {
 
 async function startMicStream(): Promise<void> {
   try {
+    micBtn.classList.add("connecting");
     micStream = await navigator.mediaDevices.getUserMedia({
       audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
     });
@@ -387,25 +534,27 @@ async function startMicStream(): Promise<void> {
       const outLen = Math.floor(f32.length / ratio);
       if (outLen < 1) return;
       const i16 = new Int16Array(outLen);
+      // moyenne des échantillons de chaque fenêtre = filtre passe-bas simple
+      // (la décimation brute créait de l'aliasing → transcriptions moins fiables)
       for (let i = 0; i < outLen; i++) {
-        const s = f32[Math.floor(i * ratio)] * 32767;
+        const from = Math.floor(i * ratio);
+        const to = Math.max(from + 1, Math.floor((i + 1) * ratio));
+        let sum = 0;
+        for (let j = from; j < to && j < f32.length; j++) sum += f32[j];
+        const s = (sum / (to - from)) * 32767;
         i16[i] = Math.max(-32768, Math.min(32767, Math.round(s)));
       }
       void invoke("mic_chunk", { data: b64FromInt16(i16) }).catch((err) => {
         micErr = String(err).slice(0, 100);
       });
-      (window as unknown as Record<string, unknown>).__nidDebugChunks =
-        ((window as unknown as Record<string, unknown>).__nidDebugChunks as number ?? 0) + 1;
     };
     micRunning = true;
+    micBtn.classList.remove("connecting");
     micBtn.classList.add("recording");
-    bubble.textContent = "Je t'écoute... 🎙️";
-    bubble.classList.remove("hidden");
-    (window as unknown as Record<string, unknown>).__nidDebug = {
-      state: "enregistre",
-      chunks: 0,
-      errors: [] as string[],
-    };
+    micBtn.title = "Arrêter l'écoute";
+    userTurnText = "";
+    stopVoice(); // si Nid parlait, on lui coupe la parole : c'est ton tour
+    showBubble("Je t'écoute... 🎙️");
     const errWatch = setInterval(() => {
       if (micErr) {
         say("🎙️ " + micErr, 8000);
@@ -416,12 +565,14 @@ async function startMicStream(): Promise<void> {
     }, 500);
   } catch (err) {
     console.error("micro:", err);
-    say("Je n'ai pas accès au micro 🙈", 5000);
+    micBtn.classList.remove("connecting");
+    say("Je n'ai pas accès au micro 🙈 — autorise-le dans Windows (Confidentialité › Microphone)", 6000);
   }
 }
 
 async function stopMicStream(): Promise<void> {
   micRunning = false;
+  micBtn.title = "Parler";
   micBtn.classList.remove("recording");
   micProcessor?.disconnect();
   micStream?.getTracks().forEach((t) => t.stop());
@@ -550,7 +701,7 @@ async function glideTo(tx?: number, ty?: number): Promise<void> {
 
 // Boucle d'autonomie : il vit sa vie quand personne ne l'occupe
 setInterval(() => {
-  if (dragging || thinking || micRunning || pose !== "idle") return;
+  if (dragging || thinking || nidSpeaking || micRunning || pose !== "idle" || !accessCard.classList.contains("hidden")) return;
   const r = Math.random();
   if (r < 0.3) {
     void startStroll();
@@ -648,138 +799,69 @@ async function handleMoveCommand(text: string): Promise<boolean> {
   return true;
 }
 
-// ── 8. La maison 🏠 : journal, album, porte, frigo ───────────────────
-const house = document.getElementById("house")!;
-const houseContent = document.getElementById("house-content")!;
-let houseTab = "journal";
 
-house.addEventListener("pointerdown", (e) => e.stopPropagation());
+// ── Demandes d'accès : un badge sur l'œuf, une carte à la demande ────
+interface AccessReq { app: string; process: string; title: string; need: "look" | "act"; intent: string }
+const accessQueue: AccessReq[] = [];
+let lastUserIntent = ""; // la phrase qui a déclenché la demande, rejouée après accord
 
-function toggleHouse(): void {
-  house.classList.toggle("hidden");
-  house.classList.toggle("hidden2");
-  if (!house.classList.contains("hidden")) {
-    renderHouse();
+void listen<Omit<AccessReq, "intent">>("nid://access-request", (e) => {
+  const dup = accessQueue.some((r) => r.process === e.payload.process && r.need === e.payload.need);
+  if (!dup) accessQueue.push({ ...e.payload, intent: lastUserIntent });
+  refreshAccessBadge();
+});
+
+function refreshAccessBadge(): void {
+  const n = accessQueue.length;
+  accessBadge.classList.toggle("hidden", n === 0);
+  document.getElementById("access-count")!.textContent = String(n);
+  if (n === 0) closeAccessCard();
+}
+
+function esc(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function openAccessCard(): void {
+  const req = accessQueue[0];
+  if (!req) return;
+  const verb = req.need === "act" ? "agir sur" : "regarder";
+  document.getElementById("access-text")!.innerHTML =
+    `<b>${esc(req.app)}</b> · ${esc(req.title).slice(0, 60)}<br><span>Nid demande à ${verb} cette application.</span>` +
+    (accessQueue.length > 1 ? `<em>${accessQueue.length - 1} autre(s) en attente</em>` : "");
+  document.getElementById("access-allow")!.textContent =
+    req.need === "act" ? "Autoriser les actions" : "Autoriser la lecture";
+  accessCard.classList.remove("hidden");
+}
+
+function closeAccessCard(): void {
+  accessCard.classList.add("hidden");
+}
+
+async function resolveAccess(level: "look" | "act" | "sanctuary" | "none"): Promise<void> {
+  const req = accessQueue.shift();
+  if (!req) return;
+  // la règle porte sur l'application entière (processus::*)
+  if (level !== "none") {
+    await invoke("set_permission", { key: `${req.process}::*`, level }).catch(() => {});
+  }
+  refreshAccessBadge();
+  if (accessQueue.length) openAccessCard();
+  if ((level === "look" || level === "act") && req.intent) {
+    // accord donné -> on rejoue la demande d'origine sans la faire répéter
+    void converse(req.intent);
   }
 }
 
-document.getElementById("house-btn")!.addEventListener("click", (e) => {
+accessBadge.addEventListener("pointerdown", (e) => e.stopPropagation());
+accessBadge.addEventListener("click", (e) => {
   e.stopPropagation();
-  toggleHouse();
+  if (accessCard.classList.contains("hidden")) openAccessCard();
+  else closeAccessCard();
 });
-document.getElementById("house-close")!.addEventListener("click", () => {
-  house.classList.add("hidden");
-  house.classList.add("hidden2");
+accessCard.addEventListener("pointerdown", (e) => e.stopPropagation());
+document.getElementById("access-allow")!.addEventListener("click", () => {
+  void resolveAccess(accessQueue[0]?.need ?? "look");
 });
-house.querySelectorAll("#house-tabs button[data-tab]").forEach((btn) => {
-  btn.addEventListener("click", (ev) => {
-    ev.stopPropagation();
-    houseTab = (ev.currentTarget as HTMLElement).dataset.tab!;
-    house.querySelectorAll("#house-tabs button[data-tab]").forEach((b) => b.classList.remove("active"));
-    (ev.currentTarget as HTMLElement).classList.add("active");
-    renderHouse();
-  });
-});
-
-function fmtTs(ts: number): string {
-  const d = new Date(ts * 1000);
-  return d.toLocaleDateString("fr") + " " + d.toLocaleTimeString("fr", { hour: "2-digit", minute: "2-digit" });
-}
-
-function renderHouse(): void {
-  void (async () => {
-    if (houseTab === "journal") {
-      const events = (await invoke("get_journal", { limit: 50 })) as Array<{ ts: number; kind: string; detail: string }>;
-      const icons: Record<string, string> = { action: "🖐️", vision: "👁️", door: "🚪" };
-      houseContent.innerHTML = events.length
-        ? events
-            .map((e) => `<div class="house-item">${icons[e.kind] ?? "•"} <b>${e.kind}</b> ${e.detail}<span class="ts">${fmtTs(e.ts)}</span></div>`)
-            .join("")
-        : `<div class="house-empty">Le journal est vide — Nid n'a encore rien fait 🌙</div>`;
-    } else if (houseTab === "album") {
-      const memories = (await invoke("get_memories")) as Array<{ key: string; note: string; ts: number }>;
-      const facts = (await invoke("get_facts")) as Array<{ subject: string; content: string; ts: number }>;
-      houseContent.innerHTML =
-        `<div class="section-title">🎯 Faits durables (consolidation)</div>` +
-        (facts.length
-          ? facts
-              .map(
-                (f) =>
-                  `<div class="house-item"><b>${f.subject}</b> — ${f.content.slice(0, 140)}<span class="ts">${fmtTs(f.ts)}</span><button class="house-delete" data-ts="${f.ts}">🗑️</button></div>`
-              )
-              .join("")
-          : `<div class="house-empty">Aucun fait consolidé encore — ça vient après quelques conversations</div>`) +
-        `<div class="section-title" style="margin-top:10px">🖼️ Souvenirs de lieux (vision)</div>` +
-        (memories.length
-        ? memories
-            .map(
-              (m) =>
-                `<div class="house-item"><b>${m.key.split("::")[0]}</b> — ${m.note.slice(0, 140)}<span class="ts">${fmtTs(m.ts)}</span><button class="house-delete" data-key="${m.key}">🗑️</button></div>`
-            )
-            .join("")
-        : `<div class="house-empty">L'album est vide — demandez-lui de "regarder" une fenêtre autorisée 👁️</div>`);
-      houseContent.querySelectorAll(".house-delete").forEach((btn) => {
-        btn.addEventListener("click", async (ev) => {
-          ev.stopPropagation();
-          const el = ev.currentTarget as HTMLElement;
-          if (el.dataset.key) {
-            await invoke("clear_memory", { key: el.dataset.key });
-          } else if (el.dataset.ts) {
-            await invoke("forget_fact", { ts: Number(el.dataset.ts) });
-          }
-          renderHouse();
-        });
-      });
-    } else if (houseTab === "door") {
-      const perms = (await invoke("get_permissions")) as Record<string, string>;
-      const entries = Object.entries(perms);
-      houseContent.innerHTML = entries.length
-        ? entries
-            .map(
-              ([key, level]) =>
-                `<div class="house-item"><b>${key.split("::")[0]}</b> — ${key.split("::")[1]?.slice(0, 40)}<br>` +
-                `<select data-key="${key}">` +
-                ["sanctuary", "none", "look", "act", "trust"]
-                  .map((l) => `<option value="${l}"${l === level ? " selected" : ""}>${l}</option>`)
-                  .join("") +
-                `</select></div>`
-            )
-            .join("")
-        : `<div class="house-empty">La porte est vide — les permissions arrivent quand les fenêtres frappent 🚪</div>`;
-      houseContent.querySelectorAll("select").forEach((sel) => {
-        sel.addEventListener("change", async (ev) => {
-          await invoke("set_permission", {
-            key: (ev.currentTarget as HTMLSelectElement).dataset.key,
-            level: (ev.currentTarget as HTMLSelectElement).value,
-          });
-        });
-      });
-    } else if (houseTab === "fridge") {
-      const cfg = (await invoke("get_brain_config")) as { provider: string; model: string; url: string; vision_model: string; audio_model: string; api_key: string };
-      houseContent.innerHTML =
-        `<div class="house-form">` +
-        `<label>Provider <input id="f-provider" value="${cfg.provider}"></label>` +
-        `<label>Modèle <input id="f-model" value="${cfg.model}"></label>` +
-        `<label>URL (ollama) <input id="f-url" value="${cfg.url}"></label>` +
-        `<label>Vision <input id="f-vision" value="${cfg.vision_model}"></label>` +
-        `<label>Audio <input id="f-audio" value="${cfg.audio_model ?? ""}" placeholder="gemini-tts:Kore"></label>` +
-        `<label>Clé Gemini <input id="f-key" type="password" value="${cfg.api_key ?? ""}" placeholder="AIza..."></label>` +
-        `<button id="f-save">🍽️ Ranger dans le frigo</button>` +
-        `</div>`;
-      document.getElementById("f-save")!.addEventListener("click", async (ev) => {
-        ev.stopPropagation();
-        await invoke("set_brain_config", {
-          config: {
-            provider: (document.getElementById("f-provider") as HTMLInputElement).value,
-            model: (document.getElementById("f-model") as HTMLInputElement).value,
-            url: (document.getElementById("f-url") as HTMLInputElement).value,
-            vision_model: (document.getElementById("f-vision") as HTMLInputElement).value,
-            audio_model: (document.getElementById("f-audio") as HTMLInputElement).value,
-            api_key: (document.getElementById("f-key") as HTMLInputElement).value,
-          },
-        });
-        say("C'est rangé dans le frigo ! 🍽️", 3000);
-      });
-    }
-  })();
-}
+document.getElementById("access-deny")!.addEventListener("click", () => void resolveAccess("none"));
+document.getElementById("access-sanctuary")!.addEventListener("click", () => void resolveAccess("sanctuary"));
