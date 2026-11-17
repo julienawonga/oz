@@ -179,7 +179,7 @@ body {
   color: #0c2340;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
   position: absolute;
-  top: 8px;
+  bottom: 176px; /* juste au-dessus de l'œuf (56px de marge + ~108px de corps) */
   left: 50%;
   transform: translateX(-50%);
   white-space: normal;
@@ -350,7 +350,7 @@ button:focus-visible,
 /* ── Carte d'accès ── */
 #access-card {
   position: absolute;
-  top: 8px;
+  bottom: 176px; /* juste au-dessus de l'œuf (56px de marge + ~108px de corps) */
   left: 50%;
   transform: translateX(-50%);
   width: 300px;

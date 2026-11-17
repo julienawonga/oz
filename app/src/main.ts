@@ -6,7 +6,7 @@ import "./egg/converse";
 import "./egg/mic";
 import "./egg/motion";
 import { state } from "./egg/state";
-import { bubble, say } from "./egg/ui";
+import { bubble } from "./egg/ui";
 import "./egg/window";
 
 // ── Nid · le petit œuf (2D) ─────────────────────────────────────────
@@ -29,4 +29,3 @@ window.addEventListener("keydown", (e) => {
   }
 });
 
-setTimeout(() => say("Salut Julien, je suis Nid ! 🪺"), 800);
