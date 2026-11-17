@@ -1,0 +1,394 @@
+//! Cerveau : configuration LLM-agnostic, client HTTP, chat en streaming.
+
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::sync::{Mutex, OnceLock};
+use tauri::{AppHandle, Manager, State};
+
+use crate::broker::{detect_action, execute_action, BrokerState};
+use crate::journal::log_event;
+use crate::memory::{build_memory_block, spawn_consolidation, CONSOLIDATION_EVERY};
+use futures_util::StreamExt;
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct ChatMessage {
+    pub role: String, // "system" | "user" | "assistant"
+    pub content: String,
+}
+
+#[derive(Deserialize, Serialize, Clone)]
+pub struct BrainConfig {
+    pub provider: String, // "ollama" | (plus tard : "gemini", "openai"...)
+    pub model: String,
+    pub url: String,
+    #[serde(default = "default_vision_model")]
+    pub vision_model: String, // modèle vision (captures d'écran)
+    #[serde(default)]
+    pub audio_model: String, // "" = voix système ; "gemini-tts:Kore" = voix Gemini
+    #[serde(default)]
+    pub api_key: String, // clé Gemini (pour le TTS audio)
+}
+
+pub(crate) fn default_vision_model() -> String {
+    "moondream:latest".into()
+}
+
+impl Default for BrainConfig {
+    fn default() -> Self {
+        Self {
+            provider: "ollama".into(),
+            model: "llama3.2:3b".into(),
+            url: "http://127.0.0.1:11434".into(),
+            vision_model: default_vision_model(),
+            audio_model: String::new(),
+            api_key: String::new(),
+        }
+    }
+}
+
+/// Client HTTP partagé : connexion rapide à échouer, pas de requête pendue.
+pub(crate) fn http_client() -> reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .read_timeout(std::time::Duration::from_secs(60))
+                .build()
+                .unwrap_or_default()
+        })
+        .clone()
+}
+
+/// Message d'erreur lisible pour une réponse HTTP non-2xx.
+pub(crate) async fn http_error(provider: &str, resp: reqwest::Response) -> String {
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    let detail = serde_json::from_str::<serde_json::Value>(&body)
+        .ok()
+        .and_then(|v| v["error"]["message"].as_str().map(str::to_string))
+        .unwrap_or_else(|| body.chars().take(120).collect());
+    let hint = match status.as_u16() {
+        400 | 401 | 403 => " — clé API invalide ou non autorisée ? (frigo 🍽️)",
+        404 => " — modèle introuvable ?",
+        429 => " — trop de requêtes, réessaie dans un instant",
+        _ => "",
+    };
+    format!("{provider} {status}{hint} : {detail}")
+}
+
+pub(crate) const SYSTEM_PROMPT: &str = "Tu es Oz, un petit œuf compagnon de bureau qui vit sur l'écran de Julien. Tu es chaleureux, curieux et légèrement taquin. Tu respectes son territoire : tu ne parles jamais des fenêtres qu'il a déclarées sanctuaires. Réponds TOUJOURS en français, très brièvement (1 à 2 phrases max) car tu parles dans une petite bulle de dialogue. Si Julien te demande une action (fermer, lister des fenêtres...), dis simplement que tu t'en occupes — le harnais s'en charge réellement.";
+
+pub(crate) struct BrainState {
+    pub(crate) config: Mutex<BrainConfig>,
+    pub(crate) history: Mutex<Vec<ChatMessage>>,
+    pub(crate) since_consolidation: Mutex<usize>,
+}
+
+// ── Clé API : Gestionnaire d'identifiants Windows (jamais dans brain.json) ──
+const KEYRING_SERVICE: &str = "oz";
+/// Ancien nom du projet : la clé y est migrée à la première lecture.
+const LEGACY_KEYRING_SERVICE: &str = "nid";
+const KEYRING_USER: &str = "gemini_api_key";
+
+fn keyring_entry() -> Result<keyring::Entry, String> {
+    keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(|e| e.to_string())
+}
+
+/// Lit la clé dans le coffre. `Ok(None)` = aucune clé enregistrée.
+fn read_api_key() -> Result<Option<String>, String> {
+    match keyring_entry()?.get_password() {
+        Ok(k) => Ok(Some(k)),
+        Err(keyring::Error::NoEntry) => migrate_legacy_key(),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Reprend la clé enregistrée sous l'ancien nom du projet, puis supprime l'ancienne entrée.
+fn migrate_legacy_key() -> Result<Option<String>, String> {
+    let Ok(old) = keyring::Entry::new(LEGACY_KEYRING_SERVICE, KEYRING_USER) else {
+        return Ok(None);
+    };
+    match old.get_password() {
+        Ok(k) => {
+            keyring_entry()?.set_password(&k).map_err(|e| e.to_string())?;
+            let _ = old.delete_credential();
+            Ok(Some(k))
+        }
+        Err(_) => Ok(None),
+    }
+}
+
+/// Enregistre la clé dans le coffre (une clé vide supprime l'entrée).
+fn store_api_key(key: &str) -> Result<(), String> {
+    let entry = keyring_entry()?;
+    if key.is_empty() {
+        match entry.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(e) => Err(e.to_string()),
+        }
+    } else {
+        entry.set_password(key).map_err(|e| e.to_string())
+    }
+}
+
+fn brain_path(app: &AppHandle) -> std::path::PathBuf {
+    app.path().app_data_dir().expect("app_data_dir").join("brain.json")
+}
+
+/// Écrit brain.json SANS la clé API.
+fn write_brain_json(app: &AppHandle, config: &BrainConfig) -> Result<(), String> {
+    let path = brain_path(app);
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let mut on_disk = config.clone();
+    on_disk.api_key = String::new();
+    fs::write(&path, serde_json::to_string_pretty(&on_disk).unwrap()).map_err(|e| e.to_string())
+}
+
+pub(crate) fn load_brain_config(app: &AppHandle) -> BrainConfig {
+    let mut cfg: BrainConfig = fs::read_to_string(brain_path(app))
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+
+    if !cfg.api_key.is_empty() {
+        // Ancienne config : clé en clair dans brain.json -> migration vers le coffre.
+        match store_api_key(&cfg.api_key) {
+            Ok(()) => {
+                // la clé reste en mémoire ; le fichier, lui, ne la contient plus
+                if write_brain_json(app, &cfg).is_ok() {
+                    log_event(app, "brain", "clé API migrée vers le Gestionnaire d'identifiants");
+                }
+            }
+            Err(e) => log_event(app, "brain", &format!("coffre indisponible, clé laissée dans brain.json : {e}")),
+        }
+    } else {
+        match read_api_key() {
+            Ok(Some(k)) => cfg.api_key = k,
+            Ok(None) => {}
+            Err(e) => log_event(app, "brain", &format!("lecture de la clé API impossible : {e}")),
+        }
+    }
+    cfg
+}
+
+#[tauri::command]
+pub(crate) fn set_brain_config(
+    app: AppHandle,
+    state: State<'_, BrainState>,
+    config: BrainConfig,
+) -> Result<(), String> {
+    // La clé va dans le coffre ; si le coffre échoue, elle reste en mémoire
+    // pour la session (jamais écrite en clair sur le disque).
+    if let Err(e) = store_api_key(&config.api_key) {
+        log_event(&app, "brain", &format!("clé API non persistée (coffre indisponible) : {e}"));
+    }
+    write_brain_json(&app, &config)?;
+    *state.config.lock().unwrap() = config;
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn get_brain_config(state: State<'_, BrainState>) -> BrainConfig {
+    state.config.lock().unwrap().clone()
+}
+
+/// Envoie la conversation au provider configuré, en STREAMING :
+/// chaque token est poussé au frontend via le Channel, et la réponse
+/// complète est retournée à la fin (pour l'historique et le TTS).
+#[tauri::command]
+pub(crate) async fn chat(
+    state: State<'_, BrainState>,
+    broker: State<'_, BrokerState>,
+    app: AppHandle,
+    user_message: String,
+    on_chunk: tauri::ipc::Channel<String>,
+) -> Result<String, String> {
+    // 0. Routeur d'intentions : les actions ne passent JAMAIS par le LLM.
+    // Un mot-clé suffit — et c'est le broker qui vérifie les permissions.
+    if let Some((action, target)) = detect_action(&user_message) {
+        let text = execute_action(&broker, &app, &action, &target);
+        let mut hist = state.history.lock().unwrap();
+        hist.push(ChatMessage {
+            role: "user".into(),
+            content: user_message,
+        });
+        hist.push(ChatMessage {
+            role: "assistant".into(),
+            content: text.clone(),
+        });
+        return Ok(text);
+    }
+
+    let cfg = state.config.lock().unwrap().clone();
+    let user_msg = user_message.clone();
+
+    // Historique : on garde léger (20 derniers messages + système)
+    {
+        let mut hist = state.history.lock().unwrap();
+        hist.push(ChatMessage {
+            role: "user".into(),
+            content: user_message,
+        });
+        if hist.len() > 20 {
+            let cut = hist.len() - 20;
+            hist.drain(0..cut);
+        }
+    }
+
+    let mut system = SYSTEM_PROMPT.to_string();
+    system.push_str(&build_memory_block(&app, &user_msg));
+    let mut messages = vec![ChatMessage {
+        role: "system".into(),
+        content: system,
+    }];
+    messages.extend(state.history.lock().unwrap().iter().cloned());
+
+    match cfg.provider.as_str() {
+        // ── Gemini : streaming SSE natif ──
+        "gemini" => {
+            let url = format!(
+                "https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse",
+                cfg.model
+            );
+            // sépare le prompt système (avec bloc mémoire) des tours de conversation
+            let (sys, turns): (Vec<&ChatMessage>, Vec<&ChatMessage>) =
+                messages.iter().partition(|m| m.role == "system");
+            let system_instruction = serde_json::json!({
+                "parts": sys.iter().map(|m| serde_json::json!({"text": m.content})).collect::<Vec<_>>()
+            });
+            let contents: Vec<serde_json::Value> = turns
+                .iter()
+                .map(|m| {
+                    serde_json::json!({
+                        "role": if m.role == "assistant" { "model" } else { &m.role },
+                        "parts": [{"text": &m.content}]
+                    })
+                })
+                .collect();
+            let body = serde_json::json!({
+                "contents": contents,
+                "systemInstruction": system_instruction,
+                "generationConfig": {"temperature": 0.7}
+            });
+            let resp = http_client()
+                .post(&url)
+                .header("x-goog-api-key", &cfg.api_key)
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| format!("Gemini injoignable ({e}) — connexion internet ?"))?;
+            if !resp.status().is_success() {
+                // le message utilisateur ne doit pas rester orphelin dans l'historique
+                state.history.lock().unwrap().pop();
+                return Err(http_error("Gemini", resp).await);
+            }
+
+            // Flux SSE : lignes "data: {...}"
+            let mut full = String::new();
+            let mut buffer = String::new();
+            let mut stream = resp.bytes_stream();
+            while let Some(chunk) = stream.next().await {
+                let bytes = chunk.map_err(|e| e.to_string())?;
+                buffer.push_str(&String::from_utf8_lossy(&bytes));
+                while let Some(pos) = buffer.find('\n') {
+
+
+                    let line: String = buffer.drain(..=pos).collect();
+                    let line = line.trim();
+                    if !line.starts_with("data: ") { continue; }
+                    let Ok(v) = serde_json::from_str::<serde_json::Value>(&line[6..]) else { continue };
+                    if let Some(tok) = v["candidates"][0]["content"]["parts"][0]["text"].as_str() {
+                        if !tok.is_empty() {
+                            full.push_str(tok);
+                            let _ = on_chunk.send(tok.to_string());
+                        }
+                    }
+                }
+            }
+            state.history.lock().unwrap().push(ChatMessage {
+                role: "assistant".into(),
+                content: full.clone(),
+            });
+
+            // consolidation identique
+            let should = {
+                let mut since = state.since_consolidation.lock().unwrap();
+                *since += 1;
+                *since >= CONSOLIDATION_EVERY
+            };
+            if should {
+                *state.since_consolidation.lock().unwrap() = 0;
+                let exchanges: Vec<ChatMessage> =
+                    state.history.lock().unwrap().iter().rev().take(12).rev().cloned().collect();
+                if exchanges.len() >= 2 {
+                    spawn_consolidation(app, exchanges);
+                }
+            }
+            Ok(full)
+        }
+        "ollama" => {
+            let url = format!("{}/api/chat", cfg.url);
+            let body = serde_json::json!({
+                "model": cfg.model,
+                "messages": messages,
+                "stream": true,
+                "think": false
+            });
+            let resp = http_client()
+                .post(&url)
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| {
+                    state.history.lock().unwrap().pop();
+                    format!("Ollama injoignable ({e}) — serveur lancé ?")
+                })?;
+            if !resp.status().is_success() {
+                state.history.lock().unwrap().pop();
+                return Err(http_error("Ollama", resp).await);
+            }
+
+            // Flux NDJSON : une ligne JSON par token
+            let mut full = String::new();
+            let mut buffer = String::new();
+            let mut stream = resp.bytes_stream();
+            while let Some(chunk) = stream.next().await {
+                let bytes = chunk.map_err(|e| e.to_string())?;
+                buffer.push_str(&String::from_utf8_lossy(&bytes));
+                while let Some(pos) = buffer.find('\n') {
+
+
+                    let line: String = buffer.drain(..=pos).collect();
+                    let line = line.trim();
+                    if line.is_empty() {
+                        continue;
+                    }
+                    let v: serde_json::Value =
+                        serde_json::from_str(line).map_err(|e| e.to_string())?;
+                    if let Some(tok) = v["message"]["content"].as_str() {
+                        if !tok.is_empty() {
+                            full.push_str(tok);
+                            let _ = on_chunk.send(tok.to_string());
+                        }
+                    }
+                    if v["done"].as_bool() == Some(true) {
+                        state.history.lock().unwrap().push(ChatMessage {
+                            role: "assistant".into(),
+                            content: full.clone(),
+                        });
+                        return Ok(full);
+                    }
+                }
+            }
+            state.history.lock().unwrap().push(ChatMessage {
+                role: "assistant".into(),
+                content: full.clone(),
+            });
+            Ok(full)
+        }
+        other => Err(format!("provider inconnu : {other}")),
+    }
+}

@@ -1,40 +1,33 @@
-# 🪺 Nid
+# Oz
 
-> *A tiny dweller for your desktop. It knocks before entering.*
+Un petit œuf qui vit sur le bureau Windows. Il t'écoute, te répond à voix haute, et n'agit sur tes fenêtres qu'avec ta permission.
 
-**Nid** is an open-source desktop AI companion: a 3D avatar (VRM) that lives on your screen, talks to you with a fully local voice stack, acts on your windows **only with your permission**, and respects the zones you forbid it to enter.
+## Principe : le contrat de confiance
 
-```
-🪺 A dweller, not a gadget
-🚪 A door that knocks before entering
-🔐 Hands that act only with your consent
-⚡ A fully local voice, answered in seconds
-```
+- **Rien sans accord.** Chaque nouvelle fenêtre déclenche une demande d'accès : *Regarder*, *Agir*, *Pas maintenant* ou *Sanctuaire*.
+- **Les sanctuaires sont inviolables.** Les permissions sont appliquées dans le code Rust (le *broker*), jamais dans un prompt. Un modèle de langage ne peut donc pas les contourner. Une fenêtre en sanctuaire est traitée comme « introuvable ».
+- **Quittances.** Ce qu'Oz a vu, fait et obtenu comme autorisations est consigné dans le journal d'activité.
+- **Le modèle ne fait que converser.** Les actions (lister, fermer, mettre au premier plan) sont décidées par un routeur d'intentions déterministe, pas par le modèle.
 
-## The trust contract
+## Fonctionnalités
 
-- **Nothing without your consent**: every new window triggers a knock (👀 Look / 🚫 Not now / 🔒 Sanctuary)
-- **Sanctuaries are unbreakable**: permissions are enforced in Rust code (the broker), not in prompts — an LLM can never bypass them
-- **Receipts**: everything it sees and does can be logged and audited
+- Œuf animé en surcouche transparente, qui se déplace sur l'écran et évite les zones interdites.
+- Saisie à la demande et bulle de dialogue collée à l'œuf.
+- Voix : micro avec arrêt automatique après silence, halo rouge pendant l'écoute, réponse lue à voix haute.
+- Mémoire : faits durables issus des conversations et notes sur les fenêtres observées, effaçables un par un.
+- Panneau d'administration : conversation, permissions, zones, modèles, mémoire, activité.
+- Cerveau interchangeable : Gemini (streaming) ou Ollama en local.
 
-## Stack
+## Pile technique
 
-- **Tauri + Rust** — ~33 MB RAM, no Python in the real-time loop
-- **Avatar**: VRM 3D via [three-vrm](https://github.com/pixiv/three-vrm) (Three.js)
-- **Brain**: LLM-agnostic (trait → [Ollama](https://ollama.com) local by default; Gemini/OpenAI pluggable) — see `brain.json`
-- **Voice**: [whisper.cpp](https://github.com/ggerganov/whisper.cpp) (local STT) + system voice (TTS)
-- **Security**: per-window permission broker (capability-based)
+- **Tauri 2** : backend Rust, interface Vite + TypeScript, sans framework.
+- **Cerveau** : Gemini ou Ollama, choisis dans le panneau *Modèles*.
+- **Voix** : Gemini Live (transcription) + lecture de la réponse du cerveau.
+- **Secret** : la clé API Gemini est dans le Gestionnaire d'identifiants Windows, jamais dans un fichier.
 
-## Structure
+## Installation et lancement
 
-```
-app/
-├── src/            # Frontend: 3D avatar, drag, hit-testing, door knock
-└── src-tauri/      # Rust backend: broker, Win32 actions, providers, voice
-docs/               # State of the art, concept, roadmap
-```
-
-## Run
+Prérequis : Windows 10 ou 11, Node.js, Rust (toolchain stable) et les prérequis Tauri 2 pour Windows.
 
 ```bash
 cd app
@@ -42,14 +35,36 @@ npm install
 npm run tauri dev
 ```
 
-First run — download the local STT model (one time, ~148 MB):
+Il faut se placer dans `app/` : le `package.json` n'est pas à la racine.
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-models.ps1
+Au premier lancement, ouvre le panneau d'administration, onglet **Modèles**, pour choisir le cerveau et saisir la clé Gemini si besoin.
+
+## Tests
+
+```bash
+cd app/src-tauri
+cargo test    # broker, routeur d'intentions, nettoyage des noms
+cd .. && npx tsc --noEmit
 ```
 
-> **Avatar model**: Nid loads any VRM avatar. Drop your `.vrm` file at `app/public/models/robot.vrm` (the file is not committed — pick one on [VRoid Hub](https://hub.vroid.com) respecting its license, or create one with [VRoid Studio](https://vroid.com/studio)).
+## Structure
 
-## Status
+```
+app/
+├── src/egg/        l'œuf : fenêtre, bulle, saisie, voix, mouvement, demandes d'accès
+├── src/panel/      le panneau d'administration, un module par onglet
+└── src-tauri/src/  Rust : broker, brain, voice, memory, vision, zones, journal
+docs/               architecture, permissions, voix, développement
+```
 
-Working MVP — see `docs/roadmap.md` for what's next (vision, advanced zones, house 🏠).
+## Documentation
+
+- [Architecture](docs/architecture.md) : modules, flux d'un message, événements.
+- [Permissions](docs/permissions.md) : niveaux, règles, comportement du broker.
+- [Voix](docs/voix.md) : pipeline micro, transcription, lecture, arrêt automatique.
+- [Développement](docs/developpement.md) : conventions, tests, données locales, dépannage.
+- [Concept](docs/concept.md), [feuille de route](docs/roadmap.md) et [état de l'art](docs/state-of-the-art.md) : réflexions de départ, en anglais, en partie dépassées.
+
+## Ancien nom
+
+Le projet s'appelait Nid. Au premier lancement, Oz reprend les données de l'ancien dossier et la clé API de l'ancienne entrée du Gestionnaire d'identifiants.

@@ -3,13 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Nid</title>
+    <title>Oz</title>
     <link rel="stylesheet" href="/src/styles.css" />
     <script type="module" src="/src/main.ts" defer></script>
   </head>
   <body>
     <div id="stage">
       <div id="robot">
+        <button id="access-badge" class="hidden" title="Demande d'accès" aria-label="Demande d'accès"><span id="access-count">1</span></button>
         <div id="robot-body">
           <div class="eye" id="eye-left"></div>
           <div class="eye" id="eye-right"></div>
@@ -20,22 +21,23 @@
           <div class="foot"></div>
         </div>
       </div>
-      <div id="speech-bubble" class="hidden">Salut ! 🐣</div>
-      <div id="house" class="hidden">
-        <div id="house-tabs">
-          <button data-tab="journal" class="active">📔</button>
-          <button data-tab="album">🖼️</button>
-          <button data-tab="door">🚪</button>
-          <button data-tab="fridge">🍽️</button>
-          <button id="house-close">✕</button>
+      <div id="speech-bubble" class="hidden"></div>
+      <div id="access-card" class="hidden" role="dialog" aria-label="Demande d'accès">
+        <div id="access-text"></div>
+        <div id="access-actions">
+          <button id="access-allow" class="primary"></button>
+          <button id="access-deny">Pas maintenant</button>
+          <button id="access-sanctuary" class="quiet">Sanctuaire</button>
         </div>
-        <div id="house-content"></div>
       </div>
-      <div id="chat-bar">
-        <input id="chat-input" placeholder="Parle à Nid..." autocomplete="off" />
-        <button id="chat-mic" title="Parler">🎤</button>
-        <button id="chat-send">➤</button>
-        <button id="house-btn" title="Sa maison">🏠</button>
+      <div id="chat-bar" class="hidden">
+        <input id="chat-input" placeholder="Écrire à Oz" autocomplete="off" aria-label="Message" />
+        <button id="chat-mic" title="Parler" aria-label="Micro">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+        </button>
+        <button id="chat-send" title="Envoyer" aria-label="Envoyer">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+        </button>
       </div>
     </div>
   </body>

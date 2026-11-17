@@ -1,4 +1,4 @@
-# 🏠 Nid — Concept document
+# 🏠 Oz — Concept document
 
 > Product brainstorming — "the agent harness with a body"
 
@@ -8,11 +8,11 @@
 
 ## Positioning
 
-**Nid is not a pet, it's an agent harness whose pet is the face.**
+**Oz is not a pet, it's an agent harness whose pet is the face.**
 
 ```
 ┌─────────────────────────────────────────────┐
-│           NID = HARNESS                     │
+│           OZ = HARNESS                     │
 │  🧠 Brain (LLM-agnostic: Ollama,            │
 │      Gemini Live, OpenAI...)                │
 │  🛠️  Tool registry (windows, screen,        │
