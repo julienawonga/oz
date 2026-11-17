@@ -17,14 +17,51 @@ let nextAudioTime = 0;
 let nidSpeakTimer = 0;
 const liveSources = new Set<AudioBufferSourceNode>();
 
-/** Coupe net la voix en cours (interruption / Échap). */
-export function stopVoice(): void {
+/** Vide la file audio sans toucher à la propriété de la voix. */
+function stopAudioQueue(): void {
   for (const src of liveSources) {
     try { src.stop(); } catch { /* déjà terminé */ }
   }
   liveSources.clear();
   nextAudioTime = 0;
   setSpeaking(false);
+}
+
+/** Coupe net la voix en cours (Échap, nouvelle question, erreur). */
+export function stopVoice(): void {
+  stopAudioQueue();
+  releaseVoice();
+}
+
+function releaseVoice(): void {
+  clearTimeout(ownerTimer);
+  state.voiceOwned = false;
+  state.voiceClosed = false;
+}
+
+let ownerTimer = 0;
+
+/** Appelé par converse.ts quand le cerveau va parler par la voix Live. */
+export function claimVoice(): void {
+  state.voiceOwned = true;
+  state.voiceClosed = false;
+}
+
+/** voice_end envoyé : le prochain turn-complete est le nôtre.
+ *  Filet de sécurité : la propriété expire seule si le serveur se tait. */
+export function markVoiceClosed(): void {
+  state.voiceClosed = true;
+  clearTimeout(ownerTimer);
+  ownerTimer = window.setTimeout(releaseVoice, 60000);
+}
+
+/** Envoie la parole transcrite de Julien au cerveau (une seule fois par tour). */
+function routeUserSpeech(): void {
+  const text = state.userTurnText.trim();
+  if (state.routedThisTurn || !text) return;
+  state.routedThisTurn = true;
+  state.userTurnText = "";
+  state.onUserSpeech?.(text);
 }
 
 /** Un seul endroit pilote "Nid parle" : bouche + garde anti-écho. */
@@ -34,22 +71,38 @@ function setSpeaking(on: boolean): void {
 }
 
 void listen<string>("nid://voice-reset", () => (nextAudioTime = 0));
-void listen<string>("nid://voice-audio", (e) => playPcmChunk(e.payload));
-void listen<string>("nid://voice-interrupted", () => stopVoice());
+void listen<string>("nid://voice-audio", (e) => {
+  if (state.voiceOwned) {
+    playPcmChunk(e.payload);
+  } else {
+    // Live commence à répondre de lui-même : sa réponse est jetée, et ce
+    // premier son signale que Julien a fini de parler -> on route vers le cerveau
+    routeUserSpeech();
+  }
+});
+// Le serveur coupe son tour (nouvelle entrée) : on vide la file, on garde la parole
+void listen<string>("nid://voice-interrupted", () => stopAudioQueue());
 void listen<string>("nid://voice-error", (e) => {
   stopVoice();
   say("🎙️ " + String(e.payload).slice(0, 110), 8000);
 });
 void listen<string>("nid://turn-complete", () => {
-  state.userTurnText = "";
-  // l'audio déjà planifié finit de jouer ; la garde se relâche avec lui
+  if (state.voiceOwned) {
+    // avant voice_end, un turn-complete appartient à la réponse jetée de Live
+    if (state.voiceClosed) releaseVoice();
+    return;
+  }
+  // tour de Live sans son : si la parole n'a pas encore été routée, on le fait ici
+  routeUserSpeech();
+  state.routedThisTurn = false; // le tour est fini, le prochain peut être routé
 });
 void listen<string>("nid://user-text", (e) => {
+  if (state.routedThisTurn) state.routedThisTurn = false; // nouvelle phrase de Julien
   state.userTurnText += e.payload;
-  showBubble("🧑 " + state.userTurnText.trim(), { sticky: true });
+  showBubble("« " + state.userTurnText.trim() + " »", { sticky: true });
 });
 void listen<string>("nid://nid-text", (e) => {
-  showBubble(e.payload, { sticky: true });
+  if (state.voiceOwned) showBubble(e.payload, { sticky: true });
 });
 
 function playPcmChunk(b64: string): void {

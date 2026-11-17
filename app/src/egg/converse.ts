@@ -1,6 +1,6 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
-import { stopVoice } from "./audio";
+import { claimVoice, markVoiceClosed, stopVoice } from "./audio";
 import { hideChatBar } from "./chatbar";
 import { handleLocalIntent } from "./intents";
 import { state } from "./state";
@@ -25,6 +25,14 @@ document.getElementById("chat-send")!.addEventListener("click", (e) => {
 });
 chatBar.addEventListener("pointerdown", (e) => e.stopPropagation());
 
+const READ_ALOUD = "Lis à voix haute, mot pour mot, sans rien ajouter ni commenter, ce texte : ";
+
+// La parole de Julien (micro) passe par le même chemin que le texte :
+// intentions locales, broker de permissions, mémoire, puis cerveau.
+state.onUserSpeech = (text) => {
+  void converse(text);
+};
+
 export async function converse(text: string): Promise<void> {
   state.lastUserIntent = text;
 
@@ -38,6 +46,14 @@ export async function converse(text: string): Promise<void> {
     const onChunk = new Channel<string>();
     let acc = "";
     let fed = 0;
+    let spokeIntro = false;
+    // Live ne doit pas répondre de lui-même : on lui demande de LIRE le texte du cerveau
+    const feed = (piece: string): Promise<void> => {
+      claimVoice();
+      const text = spokeIntro ? piece : READ_ALOUD + piece;
+      spokeIntro = true;
+      return invoke<void>("voice_feed", { text }).catch(() => {});
+    };
     // phrase complète = ponctuation forte suivie d'un espace/fin, ou saut de ligne
     const SENTENCE = /^[\s\S]*?(?:[.!?…]+(?=\s|$)|\n)/;
     onChunk.onmessage = (tok) => {
@@ -48,7 +64,7 @@ export async function converse(text: string): Promise<void> {
           const m = acc.slice(fed).match(SENTENCE);
           if (!m) break;
           fed += m[0].length;
-          if (m[0].trim().length > 2) void invoke("voice_feed", { text: m[0] }).catch(() => {});
+          if (m[0].trim().length > 2) void feed(m[0]);
         }
       }
     };
@@ -62,9 +78,14 @@ export async function converse(text: string): Promise<void> {
     // gemini-live : on envoie le reste de la phrase puis on CLÔT le tour,
     // sinon le modèle n'ouvre jamais la bouche (voice_end déclenche la parole)
     if (state.voiceLiveMode) {
-      const tail = acc.slice(fed).trim();
-      if (tail) await invoke("voice_feed", { text: tail }).catch(() => {});
-      void invoke("voice_end").catch((err) => say("🎙️ " + String(err).slice(0, 100), 6000));
+      // les réponses d'actions (« fermé ») n'arrivent pas en flux : on lit alors la réponse entière
+      const spoken = acc.trim() ? acc : reply;
+      const tail = spoken.slice(fed).trim();
+      if (tail) await feed(tail);
+      if (spokeIntro) {
+        markVoiceClosed();
+        void invoke("voice_end").catch((err) => say("🎙️ " + String(err).slice(0, 100), 6000));
+      }
     } else {
       invoke("speak", { text: reply }).catch(() => {});
     }

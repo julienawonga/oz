@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
 import { content, icon, esc, toast, pageHead } from "./util";
 
 // ── Modèles ──
@@ -55,6 +56,7 @@ export async function renderBrain(): Promise<void> {
         vision_model: val("b-vision"), audio_model: val("b-audio"), api_key: val("b-key"),
       },
     });
+    void emit("nid://brain-updated"); // l'œuf relit le mode voix sans redémarrer
     toast("Configuration enregistrée");
   });
 }

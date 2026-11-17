@@ -20,7 +20,7 @@
 ## Stack
 
 - **Tauri + Rust** — ~33 MB RAM, no Python in the real-time loop
-- **Avatar**: VRM 3D via [three-vrm](https://github.com/pixiv/three-vrm) (Three.js)
+- **Avatar**: 2D egg (CSS) — a VRM 3D avatar may return later
 - **Brain**: LLM-agnostic (trait → [Ollama](https://ollama.com) local by default; Gemini/OpenAI pluggable) — see `brain.json`
 - **Voice**: [whisper.cpp](https://github.com/ggerganov/whisper.cpp) (local STT) + system voice (TTS)
 - **Security**: per-window permission broker (capability-based)
@@ -29,8 +29,9 @@
 
 ```
 app/
-├── src/            # Frontend: 3D avatar, drag, hit-testing, door knock
-└── src-tauri/      # Rust backend: broker, Win32 actions, providers, voice
+├── src/egg/        # The egg: window, bubble, chat bar, voice, motion, access requests, intents
+├── src/panel/      # Admin panel: one module per tab
+└── src-tauri/src/  # Rust: broker (permissions + intent router), brain, voice, memory, vision, zones
 docs/               # State of the art, concept, roadmap
 ```
 
@@ -48,8 +49,15 @@ First run — download the local STT model (one time, ~148 MB):
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-models.ps1
 ```
 
-> **Avatar model**: Nid loads any VRM avatar. Drop your `.vrm` file at `app/public/models/robot.vrm` (the file is not committed — pick one on [VRoid Hub](https://hub.vroid.com) respecting its license, or create one with [VRoid Studio](https://vroid.com/studio)).
+> **Voice**: the microphone streams to Gemini Live for transcription only. What you say goes through the same path as typed text (intent router → permission broker → memory → brain), and Live then reads the brain's answer aloud. The Gemini API key is stored in the Windows Credential Manager, never in a file.
 
 ## Status
 
 Working MVP — see `docs/roadmap.md` for what's next (vision, advanced zones, house 🏠).
+
+
+## Tests
+
+```bash
+cd app/src-tauri && cargo test   # broker, intent router, name cleaning
+```

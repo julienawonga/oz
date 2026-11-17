@@ -103,6 +103,9 @@ pub(crate) fn set_permission(
 // Les actions sont donc détectées par mots-clés ICI, et exécutées par
 // le broker avec vérification des permissions. Le LLM = pure conversation.
 
+/// Mots génériques qui désignent « une fenêtre » sans nommer l'application.
+const STOPWORDS: [&str; 5] = ["fenêtre", "fenetre", "programme", "application", "app"];
+
 pub(crate) fn detect_action(msg: &str) -> Option<(String, String)> {
     let m = msg.to_lowercase();
 
@@ -120,7 +123,7 @@ pub(crate) fn detect_action(msg: &str) -> Option<(String, String)> {
     // Fermer : "ferme X", "fermer la fenêtre X", "quitte X"
     for verb in ["ferme", "fermer", "quitte", "close"] {
         if let Some(t) =
-            extract_target(&m, verb, &["la fenêtre", "le programme", "l'application"])
+            extract_target(&m, verb, &STOPWORDS)
         {
             return Some(("close".into(), t));
         }
@@ -134,7 +137,7 @@ pub(crate) fn detect_action(msg: &str) -> Option<(String, String)> {
         "mets", "mettre", "affiche", "afficher", "ramène", "ramener", "focus", "active",
     ] {
         if let Some(t) =
-            extract_target(&focus_msg, verb, &["la fenêtre", "le programme", "l'application"])
+            extract_target(&focus_msg, verb, &STOPWORDS)
         {
             return Some(("focus".into(), t));
         }
@@ -146,7 +149,8 @@ pub(crate) fn detect_action(msg: &str) -> Option<(String, String)> {
 /// Extrait la cible après un verbe, en retirant les déterminants.
 pub(crate) fn extract_target(msg: &str, verb: &str, stopwords: &[&str]) -> Option<String> {
     let idx = msg.find(verb)?;
-    let after = &msg[idx + verb.len()..];
+    // « l'application » -> « l application » pour traiter chaque mot séparément
+    let after = msg[idx + verb.len()..].replace("l'", "l ");
     let mut words: Vec<&str> = after
         .trim()
         .trim_start_matches([' ', ':', '\'', '"'])
@@ -313,6 +317,13 @@ mod tests {
     fn extract_target_strips_determiners() {
         assert_eq!(extract_target("ferme le chrome", "ferme", &[]), Some("chrome".into()));
         assert_eq!(extract_target("ferme mon vlc", "ferme", &[]), Some("vlc".into()));
+    }
+
+    #[test]
+    fn generic_nouns_are_not_the_target() {
+        assert_eq!(detect_action("ferme la fenêtre notepad"), Some(("close".into(), "notepad".into())));
+        assert_eq!(detect_action("ferme l'application spotify"), Some(("close".into(), "spotify".into())));
+        assert_eq!(detect_action("mets le programme vlc au premier plan"), Some(("focus".into(), "vlc".into())));
     }
 
     #[test]
