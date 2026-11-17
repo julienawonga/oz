@@ -412,14 +412,14 @@ pub(crate) async fn mic_chunk(app: AppHandle, data: String) -> Result<(), String
         }
     }
     // session prête ? → envoie direct. Sinon → bufferise (zéro mot perdu)
-    {
-        let guard = LIVE_TX.lock().await;
-        if guard.is_none() {
-            MIC_PENDING.lock().await.push(data);
-            ensure_live_session(&app, &gemini_key_from_state(&app).await).await?;
-            flush_mic_pending().await?;
-            return Ok(());
-        }
+    // Le verrou doit être relâché AVANT ensure_live_session, qui le reprend :
+    // sinon interblocage, la session ne s'ouvre jamais et rien ne s'affiche.
+    let session_open = LIVE_TX.lock().await.is_some();
+    if !session_open {
+        MIC_PENDING.lock().await.push(data);
+        ensure_live_session(&app, &gemini_key_from_state(&app).await).await?;
+        flush_mic_pending().await?;
+        return Ok(());
     }
     flush_mic_pending().await?; // rattrape d'éventuels chunks en attente
     let mut guard = LIVE_TX.lock().await;
