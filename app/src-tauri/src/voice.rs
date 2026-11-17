@@ -180,6 +180,7 @@ pub(crate) fn voice_emit(app: &AppHandle, event: &str, payload: &str) {
 
 /// Ouvre la session Gemini Live si absente (persistante entre les réponses).
 pub(crate) async fn ensure_live_session(app: &AppHandle, key: &str) -> Result<(), String> {
+    eprintln!("[oz] voice : ensure_live_session appelé (clé de {} caractères)", key.len());
     {
         let guard = LIVE_TX.lock().await;
         if guard.is_some() {
@@ -354,6 +355,7 @@ pub(crate) async fn ensure_live_session(app: &AppHandle, key: &str) -> Result<()
 /// Envoie un morceau de texte incrémental (turnComplete=false) — streaming
 #[tauri::command]
 pub(crate) async fn voice_feed(app: AppHandle, text: String) -> Result<(), String> {
+    eprintln!("[oz] voice : voice_feed appelé ({} caractères)", text.chars().count());
     let key = gemini_key_from_state(&app).await;
     if key.is_empty() {
         return Err("Aucune clé Gemini : ajoute-la dans le panneau, onglet Modèles".into());
@@ -399,6 +401,10 @@ pub(crate) async fn voice_end(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub(crate) async fn mic_chunk(app: AppHandle, data: String) -> Result<(), String> {
+    static FIRST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+    if FIRST.swap(false, std::sync::atomic::Ordering::Relaxed) {
+        log_event(&app, "voice", "premier mic_chunk reçu du frontend");
+    }
     {
         let cfg = app.state::<BrainState>().config.lock().unwrap().clone();
         if cfg.api_key.is_empty() {

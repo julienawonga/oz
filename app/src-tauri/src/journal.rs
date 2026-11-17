@@ -18,6 +18,8 @@ pub(crate) fn now_ts() -> u64 {
 }
 
 pub(crate) fn log_event(app: &AppHandle, kind: &str, detail: &str) {
+    // visible aussi dans le terminal de `npm run tauri dev`
+    eprintln!("[oz] {kind} : {detail}");
     let line = serde_json::json!({
         "ts": now_ts(),
         "kind": kind,
