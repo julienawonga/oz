@@ -248,7 +248,11 @@ pub(crate) fn execute_action(broker: &BrokerState, app: &AppHandle, action: &str
             }
         }
         "close" | "focus" => {
-            let q = target.to_lowercase();
+            let q = target.trim().to_lowercase();
+            if q.is_empty() {
+                // une cible vide correspondrait à TOUTES les fenêtres
+                return "Quelle fenêtre ? Donne-moi son nom.".into();
+            }
             let found = windows.into_iter().find(|w| {
                 w.title.to_lowercase().contains(&q) || w.process.to_lowercase().contains(&q)
             });

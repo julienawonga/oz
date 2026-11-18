@@ -276,7 +276,6 @@ pub(crate) fn capture_window_png(hwnd: HWND) -> Result<Vec<u8>, String> {
     }
 }
 
-/// Handle de la fenêtre actuellement au premier plan (0 si aucune).
 /// La fenêtre que Julien utilise : la fenêtre au premier plan, ou, si
 /// c'est l'œuf ou le panneau d'Oz (exclus de `windows`), la suivante dans
 /// l'ordre d'empilement. Quand on parle à Oz, c'est lui qui a le focus.

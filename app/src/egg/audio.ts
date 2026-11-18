@@ -90,16 +90,28 @@ void listen<string>("oz://voice-turn-complete", () => {
   if (state.voiceClosed) releaseVoice();
 });
 // Session « écoute » : transcription de Julien, puis signal de fin de phrase
+let lastUserText = 0;
+let routeTimer = 0;
 void listen<string>("oz://voice-user-text", (e) => {
+  lastUserText = performance.now();
   state.userTurnText += e.payload;
   showBubble("« " + state.userTurnText.trim() + " »", { sticky: true });
 });
 void listen<string>("oz://voice-user-done", () => {
-  // la transcription peut arriver juste après le signal : petite marge
-  window.setTimeout(() => {
+  // La transcription arrive souvent APRÈS le signal de fin de phrase :
+  // on attend qu'elle se taise 300 ms (1,5 s au plus) avant d'envoyer.
+  const start = performance.now();
+  window.clearTimeout(routeTimer);
+  const tryRoute = () => {
+    const now = performance.now();
+    if (now - lastUserText < 300 && now - start < 1500) {
+      routeTimer = window.setTimeout(tryRoute, 80);
+      return;
+    }
     routeUserSpeech();
     state.routedThisTurn = false;
-  }, 250);
+  };
+  routeTimer = window.setTimeout(tryRoute, 250);
 });
 
 function playPcmChunk(b64: string): void {

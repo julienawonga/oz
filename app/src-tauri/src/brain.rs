@@ -298,13 +298,19 @@ pub(crate) async fn chat(
 
             let mut full = String::new();
             eprintln!("[oz] {} brain : question envoyée à Gemini", crate::journal::clock_ms());
-            for _round in 0..5 {
-                let body = serde_json::json!({
+            const ROUNDS: usize = 5;
+            for round in 0..ROUNDS {
+                let mut body = serde_json::json!({
                     "contents": contents,
                     "systemInstruction": system_instruction,
-                    "tools": crate::tools::declarations(),
                     "generationConfig": {"temperature": 0.7}
                 });
+                // dernier tour : plus d'outils, le modèle doit répondre en texte
+                if round + 1 < ROUNDS {
+                    body["tools"] = crate::tools::declarations();
+                }
+                // texte d'un tour précédent (« Je regarde. ») : on sépare
+                let mut need_space = !full.is_empty() && !full.ends_with(char::is_whitespace);
                 let resp = match http_client()
                     .post(&url)
                     .header("x-goog-api-key", &cfg.api_key)
@@ -332,7 +338,13 @@ pub(crate) async fn chat(
                 let mut buffer = String::new();
                 let mut stream = resp.bytes_stream();
                 while let Some(chunk) = stream.next().await {
-                    let bytes = chunk.map_err(|e| e.to_string())?;
+                    let bytes = match chunk {
+                        Ok(b) => b,
+                        Err(e) => {
+                            state.history.lock().unwrap().pop();
+                            return Err(format!("Réponse de Gemini interrompue ({e})"));
+                        }
+                    };
                     buffer.push_str(&String::from_utf8_lossy(&bytes));
                     while let Some(pos) = buffer.find('\n') {
                         let line: String = buffer.drain(..=pos).collect();
@@ -351,6 +363,11 @@ pub(crate) async fn chat(
                                 if !tok.is_empty() {
                                     if full.is_empty() {
                                         eprintln!("[oz] {} brain : premier mot de la réponse", crate::journal::clock_ms());
+                                    }
+                                    if need_space {
+                                        need_space = false;
+                                        full.push(' ');
+                                        let _ = on_chunk.send(" ".into());
                                     }
                                     full.push_str(tok);
                                     let _ = on_chunk.send(tok.to_string());
@@ -373,6 +390,11 @@ pub(crate) async fn chat(
                     }));
                 }
                 contents.push(serde_json::json!({"role": "user", "parts": responses}));
+            }
+            if full.trim().is_empty() {
+                // jamais de réponse vide : ni silence, ni tour vide dans l'historique
+                full = "Je n'ai pas réussi à te répondre, tu peux reformuler ?".into();
+                let _ = on_chunk.send(full.clone());
             }
             state.history.lock().unwrap().push(ChatMessage {
                 role: "assistant".into(),

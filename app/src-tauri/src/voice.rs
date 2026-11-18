@@ -445,7 +445,18 @@ pub(crate) async fn mic_chunk(app: AppHandle, data: String) -> Result<(), String
     }
     // Micro ouvert : on garde la session de PAROLE chaude, pour que la
     // réponse d'Oz n'attende pas l'ouverture d'une connexion (~1 s).
-    if SPEAK_TX.lock().await.is_none() && SPEAK_CONNECT.try_lock().is_ok() {
+    // Au plus une tentative toutes les 30 s : si l'ouverture échoue, on ne
+    // la relance pas à chaque chunk (4 par seconde) avec une erreur à l'écran.
+    static LAST_WARM: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+    let due = {
+        let mut last = LAST_WARM.lock().unwrap();
+        let due = last.is_none_or(|t| t.elapsed() >= std::time::Duration::from_secs(30));
+        if due {
+            *last = Some(std::time::Instant::now());
+        }
+        due
+    };
+    if due && SPEAK_TX.lock().await.is_none() {
         let warm = app.clone();
         let k = key.clone();
         tokio::spawn(async move {
