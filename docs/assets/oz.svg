@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 150" width="140" height="150" role="img" aria-label="Oz">
+  <defs>
+    <linearGradient id="shell" x1="0.2" y1="0" x2="0.8" y2="1">
+      <stop offset="0" stop-color="#7dd3fc"/>
+      <stop offset="0.6" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#0284c7"/>
+    </linearGradient>
+  </defs>
+  <ellipse cx="70" cy="142" rx="42" ry="5" fill="#0284c7" opacity="0.18"/>
+  <rect x="42" y="118" width="24" height="14" rx="7" fill="#0284c7"/>
+  <rect x="74" y="118" width="24" height="14" rx="7" fill="#0284c7"/>
+  <path d="M70 8 C104 8 116 50 116 78 C116 108 96 124 70 124 C44 124 24 108 24 78 C24 50 36 8 70 8 Z" fill="url(#shell)"/>
+  <ellipse cx="50" cy="32" rx="14" ry="8" fill="#fff" opacity="0.55" transform="rotate(-25 50 32)"/>
+  <ellipse cx="56" cy="70" rx="7" ry="10" fill="#0c2340"/>
+  <ellipse cx="84" cy="70" rx="7" ry="10" fill="#0c2340"/>
+  <circle cx="58" cy="66" r="2.6" fill="#7dd3fc"/>
+  <circle cx="86" cy="66" r="2.6" fill="#7dd3fc"/>
+  <path d="M61 92 h18 a9 9 0 0 1 -18 0 z" fill="#0c2340"/>
+</svg>
