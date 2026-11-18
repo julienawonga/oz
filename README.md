@@ -1,13 +1,13 @@
 <p align="center">
-  <img src="docs/assets/oz.svg" alt="Oz, le petit œuf" width="120">
+  <img src="docs/assets/oz.svg" alt="Oz, the little egg" width="120">
 </p>
 
 <h1 align="center">Oz</h1>
 
 <p align="center">
-  <strong>Un petit œuf qui vit sur ton bureau Windows.</strong><br>
-  Il t'écoute, te répond à voix haute, regarde ton écran quand tu le lui demandes,<br>
-  et ne touche à tes fenêtres qu'avec ta permission.
+  <strong>A little egg that lives on your Windows desktop.</strong><br>
+  It listens, talks back out loud, looks at your screen when you ask it to,<br>
+  and only touches your windows with your permission.
 </p>
 
 <p align="center">
@@ -17,137 +17,141 @@
   <img src="https://img.shields.io/badge/TypeScript-Vite-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript + Vite">
 </p>
 <p align="center">
-  <img src="https://img.shields.io/badge/Gemini-Live%20%2B%20outils-8E75B2?style=flat-square&logo=googlegemini&logoColor=white" alt="Gemini Live + outils">
+  <img src="https://img.shields.io/badge/Gemini-Live%20%2B%20tools-8E75B2?style=flat-square&logo=googlegemini&logoColor=white" alt="Gemini Live + tools">
   <img src="https://img.shields.io/badge/Ollama-local-000000?style=flat-square&logo=ollama&logoColor=white" alt="Ollama">
-  <img src="https://img.shields.io/badge/permissions-appliqu%C3%A9es%20en%20Rust-0284c7?style=flat-square" alt="Permissions appliquées en Rust">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/licence-MIT-22c55e?style=flat-square" alt="Licence MIT"></a>
+  <img src="https://img.shields.io/badge/permissions-enforced%20in%20Rust-0284c7?style=flat-square" alt="Permissions enforced in Rust">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" alt="MIT license"></a>
 </p>
 
 <p align="center">
-  <a href="#-démarrage-rapide">Démarrage rapide</a> ·
-  <a href="#-fonctionnalités">Fonctionnalités</a> ·
-  <a href="#-le-contrat-de-confiance">Contrat de confiance</a> ·
+  <a href="#-quick-start">Quick start</a> ·
+  <a href="#-features">Features</a> ·
+  <a href="#-the-trust-contract">Trust contract</a> ·
   <a href="docs/architecture.md">Architecture</a> ·
-  <a href="#️-feuille-de-route">Feuille de route</a>
+  <a href="#️-roadmap">Roadmap</a>
 </p>
 
 ---
 
-## 🥚 Pourquoi Oz
+## 🥚 Why Oz
 
-Les assistants vivent dans une fenêtre qu'il faut ouvrir. Oz, lui, **habite le bureau** : un petit œuf animé, en surcouche transparente, qui se balade, s'assoit, écoute quand on lui parle et répond de vive voix.
+Assistants live in a window you have to open. Oz **lives on your desktop**: a small animated egg in a transparent overlay that wanders around, sits down, listens when you talk to it and answers out loud.
 
-Il comprend ce qu'on lui dit **avec un vrai modèle de langage, sans mots-clés** : « qu'est-ce qui est ouvert ? », « ferme-moi Spotify », « qu'est-ce que tu vois sur mon écran ? ». Mais il ne peut **rien** faire que tu n'aies autorisé : chaque permission est vérifiée dans le code Rust, jamais dans un prompt.
+It understands what you say **with a real language model, no keywords**: "what's open right now?", "close Spotify for me", "what do you see on my screen?". But it can do **nothing** you haven't allowed: every permission is checked in Rust code, never in a prompt.
 
-## ✨ Fonctionnalités
+## ✨ Features
 
 | | |
 |---|---|
-| 🎙️ **Voix temps réel** | Micro en streaming vers Gemini Live, transcription en direct dans la bulle, réponse lue à voix haute. Une nouvelle question coupe l'ancienne réponse. |
-| 🧠 **Compréhension par LLM** | Gemini comprend la demande, quelle que soit la formulation, et appelle des outils (function calling). Aucun routeur par mots-clés. |
-| 👀 **Vision** | Oz capture une fenêtre autorisée et la décrit, ou t'aide sur ce que tu fais. |
-| 🪟 **Actions sur les fenêtres** | Lister, fermer, mettre au premier plan, toujours derrière le broker de permissions. |
-| 🐣 **Un œuf vivant** | Animations, poses (assis, debout), balades, glisser-déposer, zones de l'écran interdites. |
-| 🗂️ **Mémoire** | Faits durables tirés des conversations, notes sur les fenêtres observées, effaçables un par un. |
-| 🕒 **Contexte** | Heure locale injectée à chaque message. |
-| 🎛️ **Panneau d'administration** | Conversation, permissions (avec les fenêtres ouvertes en direct), zones, modèles, mémoire, journal d'activité. |
+| 🎙️ **Real-time voice** | Mic streamed to Gemini Live, live transcription in the speech bubble, answer read out loud. A new question cuts off the previous answer. |
+| 🧠 **LLM understanding** | Gemini understands the request however it's phrased and calls tools (function calling). No keyword router. |
+| 👀 **Vision** | Oz captures an allowed window and describes it, or helps with what you're doing. |
+| 🪟 **Window actions** | List, close, bring to front, always behind the permission broker. |
+| 🐣 **A living egg** | Animations, poses (sitting, standing), strolls, drag and drop, no-go zones on the screen. |
+| 🗂️ **Memory** | Lasting facts drawn from conversations, notes on observed windows, deletable one by one. |
+| 🕒 **Context** | Local time injected into every message. |
+| 🎛️ **Admin panel** | Chat, permissions (with live list of open windows), zones, models, memory, activity log. |
 
-### Outils dont dispose le cerveau
+### Tools available to the brain
 
-| Outil | Ce qu'il fait | Permission requise |
+| Tool | What it does | Required permission |
 |---|---|---|
-| `lister_fenetres` | Applications et fenêtres ouvertes | aucune (les sanctuaires restent invisibles) |
-| `regarder_fenetre` | Capture et décrit une fenêtre | *Lecture* |
-| `fermer_fenetre` | Ferme une fenêtre | *Actions* |
-| `mettre_au_premier_plan` | Ramène une fenêtre devant | *Actions* |
-| `se_deplacer` · `changer_pose` | Déplace l'œuf, l'assoit ou le relève | — |
-| `zone_interdite` | Interdit ou autorise l'endroit où se trouve Oz | — |
+| `lister_fenetres` | Lists open apps and windows | none (sanctuaries stay invisible) |
+| `regarder_fenetre` | Captures and describes a window | *Look* |
+| `fermer_fenetre` | Closes a window | *Act* |
+| `mettre_au_premier_plan` | Brings a window to the front | *Act* |
+| `se_deplacer` · `changer_pose` | Moves the egg, sits it down or stands it up | — |
+| `zone_interdite` | Forbids or allows the spot where Oz stands | — |
 
-## 🔐 Le contrat de confiance
+Tool names are in French: Oz talks to its user in French.
+
+## 🔐 The trust contract
 
 > [!IMPORTANT]
-> Le modèle **propose**, le code **dispose**. Un LLM ne peut contourner aucune permission : elles sont appliquées par le *broker*, en Rust.
+> The model **proposes**, the code **decides**. No LLM can bypass a permission: they are enforced by the *broker*, in Rust.
 
-- **Rien sans accord.** Une fenêtre inconnue déclenche une demande d'accès sur l'œuf : *Regarder*, *Agir*, *Pas maintenant* ou *Sanctuaire*.
-- **Les sanctuaires sont inviolables.** Une fenêtre en sanctuaire n'existe pas pour Oz : ni listée, ni vue, ni touchée. Elle est « introuvable ».
-- **Cinq niveaux.** Sanctuaire · Aucun accès · Lecture · Actions · Confiance, par application ou par fenêtre.
-- **Quittances.** Tout ce qu'Oz a vu, fait ou obtenu est consigné dans le journal d'activité.
-- **Secrets au coffre.** La clé Gemini est dans le Gestionnaire d'identifiants Windows, jamais dans un fichier.
+- **Nothing without consent.** An unknown window triggers an access request on the egg: *Look*, *Act*, *Not now* or *Sanctuary*.
+- **Sanctuaries are inviolable.** A sanctuary window doesn't exist for Oz: never listed, never seen, never touched. It is simply "not found".
+- **Five levels.** Sanctuary · No access · Look · Act · Trust, per app or per window.
+- **Receipts.** Everything Oz has seen, done or been granted is recorded in the activity log.
+- **Secrets in the vault.** The Gemini key lives in Windows Credential Manager, never in a file.
 
-Détails : [docs/permissions.md](docs/permissions.md).
+Details: [docs/permissions.md](docs/permissions.md).
 
-## 🚀 Démarrage rapide
+## 🚀 Quick start
 
-**Prérequis :** Windows 10 ou 11, [Node.js](https://nodejs.org), [Rust](https://rustup.rs) (stable) et les [prérequis Tauri 2 pour Windows](https://v2.tauri.app/start/prerequisites/).
+**Requirements:** Windows 10 or 11, [Node.js](https://nodejs.org), [Rust](https://rustup.rs) (stable) and the [Tauri 2 prerequisites for Windows](https://v2.tauri.app/start/prerequisites/).
 
 ```bash
 git clone https://github.com/julienawonga/oz.git
-cd oz/app          # le package.json est dans app/, pas à la racine
+cd oz/app          # package.json lives in app/, not at the root
 npm install
 npm run tauri dev
 ```
 
-Au premier lancement, ouvre le panneau d'administration, onglet **Modèles**, choisis le cerveau et saisis ta clé Gemini.
+On first launch, open the admin panel, **Models** tab, pick the brain and enter your Gemini key.
 
 > [!TIP]
-> Pour tester la voix sans l'app : `cd app/src-tauri && cargo run --example voice_probe [fichier.wav]`.
+> To test the voice without the app: `cd app/src-tauri && cargo run --example voice_probe [file.wav]`.
 
-## 🤖 Modèles
+## 🤖 Models
 
-| Fournisseur | Conversation | Outils | Voix | Vision |
+| Provider | Chat | Tools | Voice | Vision |
 |---|:---:|:---:|:---:|:---:|
 | **Gemini** | ✅ streaming | ✅ function calling | ✅ Gemini Live | ✅ |
-| **Ollama** (local) | ✅ streaming | 🚧 bientôt | — | — |
+| **Ollama** (local) | ✅ streaming | 🚧 coming soon | — | — |
 
 ## 🏗️ Architecture
 
 ```
-  micro ──► Gemini Live (écoute) ──► transcription
-                                          │
-                                          ▼
-  œuf (TS) ◄── réponse en streaming ◄── cerveau Gemini ──► outils ──► broker (Rust) ──► Win32
-     │                                                                   ▲
-     └──► Gemini Live (parole) ──► voix d'Oz                permissions ─┘
+  mic ──► Gemini Live (listen) ──► transcription
+                                        │
+                                        ▼
+  egg (TS) ◄── streamed answer ◄── Gemini brain ──► tools ──► broker (Rust) ──► Win32
+     │                                                              ▲
+     └──► Gemini Live (speak) ──► Oz's voice           permissions ─┘
 ```
 
 ```
 app/
-├── src/egg/        l'œuf : fenêtre, bulle, saisie, voix, mouvement, demandes d'accès
-├── src/panel/      le panneau d'administration, un module par onglet
-└── src-tauri/src/  Rust : broker, brain, tools, voice, vision, memory, zones, journal
-docs/               architecture, permissions, voix, développement
+├── src/egg/        the egg: window, bubble, input, voice, movement, access requests
+├── src/panel/      the admin panel, one module per tab
+└── src-tauri/src/  Rust: broker, brain, tools, voice, vision, memory, zones, journal
+docs/               architecture, permissions, voice, development
 ```
 
 ## 🧪 Tests
 
 ```bash
-cd app/src-tauri && cargo test     # broker, routeur, nettoyage des noms
-cd .. && npx tsc --noEmit          # typage du front
+cd app/src-tauri && cargo test     # broker, router, name cleanup
+cd .. && npx tsc --noEmit          # front-end type check
 ```
 
-## 🗺️ Feuille de route
+## 🗺️ Roadmap
 
-- [x] Voix temps réel de bout en bout (deux sessions Gemini Live)
-- [x] Outils Gemini à la place des mots-clés
-- [x] Permissions par fenêtre, sanctuaires, journal
-- [ ] Modes de déplacement : libre, position fixe, derrière les fenêtres, ancré au bord, concentration
-- [ ] Outils pour les modèles locaux (Ollama)
-- [ ] Personnalisation de l'œuf (couleurs, textures)
-- [ ] Appuyer-pour-parler (touche globale) et mot d'éveil
+- [x] End-to-end real-time voice (two Gemini Live sessions)
+- [x] Gemini tools instead of keywords
+- [x] Per-window permissions, sanctuaries, activity log
+- [ ] Movement modes: free roam, fixed position, behind windows, docked to an edge, focus
+- [ ] Tools for local models (Ollama)
+- [ ] Egg customization (colors, textures)
+- [ ] Push-to-talk (global hotkey) and wake word
 
 ## 📚 Documentation
 
-- [Architecture](docs/architecture.md) : modules, flux d'un message, événements.
-- [Permissions](docs/permissions.md) : niveaux, règles, comportement du broker.
-- [Voix](docs/voix.md) : pipeline micro, transcription, lecture.
-- [Développement](docs/developpement.md) : conventions, tests, données locales, dépannage.
+The detailed docs are in French.
+
+- [Architecture](docs/architecture.md): modules, message flow, events.
+- [Permissions](docs/permissions.md): levels, rules, broker behavior.
+- [Voice](docs/voix.md): mic pipeline, transcription, playback.
+- [Development](docs/developpement.md): conventions, tests, local data, troubleshooting.
 
 <details>
-<summary>Ancien nom : Nid</summary>
+<summary>Former name: Nid</summary>
 
-Le projet s'appelait Nid. Au premier lancement, Oz reprend les données de l'ancien dossier et la clé API de l'ancienne entrée du Gestionnaire d'identifiants.
+The project used to be called Nid. On first launch, Oz picks up the data from the old folder and the API key from the old Credential Manager entry.
 </details>
 
-## 📄 Licence
+## 📄 License
 
 [MIT](LICENSE) © 2026 Julien Awonga
