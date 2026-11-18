@@ -1,3 +1,4 @@
+import { listen } from "@tauri-apps/api/event";
 import { renderBrain } from "./panel/brain";
 import { renderChat } from "./panel/chat";
 import { renderJournal } from "./panel/journal";
@@ -36,3 +37,22 @@ async function renderAsync(): Promise<void> {
 }
 
 render();
+
+// ── Rafraîchissement automatique ──
+// Le panneau reste ouvert en arrière-plan : sans ça, il montrait l'état du
+// démarrage. On relit les onglets « vivants » quand il reprend le focus et
+// quand Oz rencontre une nouvelle fenêtre. Les onglets avec saisie (chat,
+// modèles) ne sont pas redessinés pour ne pas effacer ce qu'on tape.
+const LIVE_TABS = new Set(["perms", "zones", "memory", "journal"]);
+function refreshLive(): void {
+  if (LIVE_TABS.has(view.tab) && !document.querySelector("#content select:focus")) render();
+}
+window.addEventListener("focus", refreshLive);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) refreshLive();
+});
+void listen("oz://access-request", refreshLive);
+// onglet Permissions affiché : la liste des fenêtres suit l'écran en continu
+setInterval(() => {
+  if (view.tab === "perms" && !document.hidden && document.hasFocus()) refreshLive();
+}, 4000);

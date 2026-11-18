@@ -8,7 +8,7 @@ use crate::brain::{http_client, BrainState};
 use crate::broker::{request_access, BrokerState};
 use crate::journal::log_event;
 use crate::memory::remember;
-use crate::windows_api::{enumerate_windows, foreground_hwnd, friendly_name};
+use crate::windows_api::{active_window, enumerate_windows, friendly_name};
 
 /// Regarde une fenêtre autorisée et décrit ce qu'il voit via le modèle vision.
 #[tauri::command]
@@ -21,9 +21,8 @@ pub(crate) async fn look_at(
 ) -> Result<String, String> {
     let windows = enumerate_windows();
     let found = if target.trim().is_empty() {
-        // Pas de cible → la fenêtre au premier plan
-        let fg = foreground_hwnd();
-        windows.into_iter().find(|w| w.hwnd == fg)
+        // Pas de cible → la fenêtre que Julien utilise (pas l'œuf lui-même)
+        active_window(windows)
     } else {
         let q = target.to_lowercase();
         windows.into_iter().find(|w| {
@@ -31,7 +30,11 @@ pub(crate) async fn look_at(
         })
     };
     let Some(w) = found else {
-        return Err(format!("Je ne trouve pas de fenêtre « {} »", target));
+        return Err(if target.trim().is_empty() {
+            "Je ne trouve aucune fenêtre à regarder.".to_string()
+        } else {
+            format!("Je ne trouve pas de fenêtre « {} »", target)
+        });
     };
 
     // 🔐 LE BROKER DÉCIDE : la capture exige look / act / trust

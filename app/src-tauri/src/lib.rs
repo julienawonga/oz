@@ -13,6 +13,7 @@ mod broker;
 mod cursor;
 mod journal;
 mod memory;
+mod tools;
 mod vision;
 mod voice;
 pub mod windows_api;

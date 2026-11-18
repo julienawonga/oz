@@ -55,6 +55,9 @@ export function markVoiceClosed(): void {
   ownerTimer = window.setTimeout(releaseVoice, 60000);
 }
 
+/** Consigne donnée à Live : lire le texte du cerveau, pas y répondre. */
+export const READ_ALOUD = "Lis à voix haute, mot pour mot, sans rien ajouter ni commenter, ce texte : ";
+
 /** Envoie la parole transcrite de Julien au cerveau (une seule fois par tour). */
 function routeUserSpeech(): void {
   const text = state.userTurnText.trim();
@@ -71,14 +74,10 @@ function setSpeaking(on: boolean): void {
 }
 
 void listen<string>("oz://voice-reset", () => (nextAudioTime = 0));
+// Session « parole » : tout son audio est la voix d'Oz. On ne le joue que
+// tant que la réponse nous appartient (Échap / nouvelle question la coupent).
 void listen<string>("oz://voice-audio", (e) => {
-  if (state.voiceOwned) {
-    playPcmChunk(e.payload);
-  } else {
-    // Live commence à répondre de lui-même : sa réponse est jetée, et ce
-    // premier son signale que Julien a fini de parler -> on route vers le cerveau
-    routeUserSpeech();
-  }
+  if (state.voiceOwned) playPcmChunk(e.payload);
 });
 // Le serveur coupe son tour (nouvelle entrée) : on vide la file, on garde la parole
 void listen<string>("oz://voice-interrupted", () => stopAudioQueue());
@@ -86,23 +85,21 @@ void listen<string>("oz://voice-error", (e) => {
   stopVoice();
   say("🎙️ " + String(e.payload).slice(0, 110), 8000);
 });
-void listen<string>("oz://turn-complete", () => {
-  if (state.voiceOwned) {
-    // avant voice_end, un turn-complete appartient à la réponse jetée de Live
-    if (state.voiceClosed) releaseVoice();
-    return;
-  }
-  // tour de Live sans son : si la parole n'a pas encore été routée, on le fait ici
-  routeUserSpeech();
-  state.routedThisTurn = false; // le tour est fini, le prochain peut être routé
+// fin de la lecture : la voix est libre pour la prochaine réponse
+void listen<string>("oz://voice-turn-complete", () => {
+  if (state.voiceClosed) releaseVoice();
 });
-void listen<string>("oz://user-text", (e) => {
-  if (state.routedThisTurn) state.routedThisTurn = false; // nouvelle phrase de Julien
+// Session « écoute » : transcription de Julien, puis signal de fin de phrase
+void listen<string>("oz://voice-user-text", (e) => {
   state.userTurnText += e.payload;
   showBubble("« " + state.userTurnText.trim() + " »", { sticky: true });
 });
-void listen<string>("oz://oz-text", (e) => {
-  if (state.voiceOwned) showBubble(e.payload, { sticky: true });
+void listen<string>("oz://voice-user-done", () => {
+  // la transcription peut arriver juste après le signal : petite marge
+  window.setTimeout(() => {
+    routeUserSpeech();
+    state.routedThisTurn = false;
+  }, 250);
 });
 
 function playPcmChunk(b64: string): void {

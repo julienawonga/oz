@@ -10,6 +10,16 @@ pub(crate) fn journal_path(app: &AppHandle) -> std::path::PathBuf {
         .join("journal.jsonl")
 }
 
+/// Heure UTC à la milliseconde, pour mesurer les délais dans le terminal.
+pub(crate) fn clock_ms() -> String {
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let s = (ms / 1000) % 86400;
+    format!("{:02}:{:02}:{:02}.{:03}", s / 3600, (s / 60) % 60, s % 60, ms % 1000)
+}
+
 pub(crate) fn now_ts() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -19,7 +29,7 @@ pub(crate) fn now_ts() -> u64 {
 
 pub(crate) fn log_event(app: &AppHandle, kind: &str, detail: &str) {
     // visible aussi dans le terminal de `npm run tauri dev`
-    eprintln!("[oz] {kind} : {detail}");
+    eprintln!("[oz] {} {kind} : {detail}", clock_ms());
     let line = serde_json::json!({
         "ts": now_ts(),
         "kind": kind,

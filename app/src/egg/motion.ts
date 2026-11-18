@@ -155,6 +155,13 @@ setInterval(() => {
     applyPose("idle");
   }
   if (pose === "walk" && stroll) {
+    // Julien l'attrape : la balade s'arrête net, sinon elle remet la
+    // fenêtre à son ancienne position toutes les 33 ms et l'œuf « résiste »
+    if (state.dragging) {
+      stroll = null;
+      applyPose("idle");
+      return;
+    }
     if (performance.now() >= stroll.end) {
       stroll = null;
       applyPose("idle");

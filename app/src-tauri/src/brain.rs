@@ -77,7 +77,27 @@ pub(crate) async fn http_error(provider: &str, resp: reqwest::Response) -> Strin
     format!("{provider} {status}{hint} : {detail}")
 }
 
-pub(crate) const SYSTEM_PROMPT: &str = "Tu es Oz, un petit œuf compagnon de bureau qui vit sur l'écran de Julien. Tu es chaleureux, curieux et légèrement taquin. Tu respectes son territoire : tu ne parles jamais des fenêtres qu'il a déclarées sanctuaires. Réponds TOUJOURS en français, très brièvement (1 à 2 phrases max) car tu parles dans une petite bulle de dialogue. Si Julien te demande une action (fermer, lister des fenêtres...), dis simplement que tu t'en occupes — le harnais s'en charge réellement.";
+pub(crate) const SYSTEM_PROMPT: &str = "Tu es Oz, un petit œuf compagnon de bureau qui vit sur l'écran de Julien. Tu es chaleureux, curieux et légèrement taquin. Réponds TOUJOURS en français, très brièvement (1 à 2 phrases), sans listes à puces ni markdown : ta réponse s'affiche dans une petite bulle et elle est lue à voix haute. Tu as des outils pour voir et agir sur l'ordinateur de Julien (lister, fermer ou ramener une fenêtre, regarder une fenêtre, te déplacer, changer de pose, gérer tes zones interdites). Dès que Julien demande quelque chose que ces outils permettent, même formulé à sa façon, utilise l'outil au lieu de répondre de mémoire, et n'affirme jamais avoir fait une action sans l'avoir faite par un outil. Si un outil répond qu'il te faut son accord, dis-lui simplement de toucher le badge sur l'œuf. Résume les résultats des outils en langage naturel. Une fenêtre qui n'apparaît pas dans les résultats n'existe pas pour toi : n'en parle jamais.";
+
+/// Date et heure locales de Windows, données au modèle à chaque message
+/// (sinon il cherchait l'heure en capturant l'écran).
+fn now_line() -> String {
+    // SAFETY : GetLocalTime remplit une structure, sans précondition.
+    let t = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
+    const JOURS: [&str; 7] = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
+    const MOIS: [&str; 12] = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+    format!(
+        "
+
+Nous sommes le {} {} {} {}, il est {}h{:02}.",
+        JOURS[t.wDayOfWeek as usize % 7],
+        t.wDay,
+        MOIS[(t.wMonth as usize).saturating_sub(1) % 12],
+        t.wYear,
+        t.wHour,
+        t.wMinute
+    )
+}
 
 pub(crate) struct BrainState {
     pub(crate) config: Mutex<BrainConfig>,
@@ -206,8 +226,12 @@ pub(crate) async fn chat(
     user_message: String,
     on_chunk: tauri::ipc::Channel<String>,
 ) -> Result<String, String> {
-    // 0. Routeur d'intentions : les actions ne passent JAMAIS par le LLM.
-    // Un mot-clé suffit — et c'est le broker qui vérifie les permissions.
+    let cfg = state.config.lock().unwrap().clone();
+
+    // 0. Gemini comprend lui-même la demande et appelle les outils (tools.rs).
+    // Les modèles locaux (Ollama) n'ont pas encore d'outils : en attendant,
+    // eux seuls gardent l'ancien routeur par mots-clés.
+    if cfg.provider != "gemini" {
     if let Some((action, target)) = detect_action(&user_message) {
         let text = execute_action(&broker, &app, &action, &target);
         let mut hist = state.history.lock().unwrap();
@@ -221,8 +245,8 @@ pub(crate) async fn chat(
         });
         return Ok(text);
     }
+    }
 
-    let cfg = state.config.lock().unwrap().clone();
     let user_msg = user_message.clone();
 
     // Historique : on garde léger (20 derniers messages + système)
@@ -239,6 +263,7 @@ pub(crate) async fn chat(
     }
 
     let mut system = SYSTEM_PROMPT.to_string();
+    system.push_str(&now_line());
     system.push_str(&build_memory_block(&app, &user_msg));
     let mut messages = vec![ChatMessage {
         role: "system".into(),
@@ -247,7 +272,9 @@ pub(crate) async fn chat(
     messages.extend(state.history.lock().unwrap().iter().cloned());
 
     match cfg.provider.as_str() {
-        // ── Gemini : streaming SSE natif ──
+        // ── Gemini : streaming SSE natif + outils (function calling) ──
+        // Gemini comprend la demande et appelle les outils ; on exécute,
+        // on lui renvoie le résultat, il formule la réponse. Jusqu'à 5 tours.
         "gemini" => {
             let url = format!(
                 "https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse",
@@ -259,7 +286,7 @@ pub(crate) async fn chat(
             let system_instruction = serde_json::json!({
                 "parts": sys.iter().map(|m| serde_json::json!({"text": m.content})).collect::<Vec<_>>()
             });
-            let contents: Vec<serde_json::Value> = turns
+            let mut contents: Vec<serde_json::Value> = turns
                 .iter()
                 .map(|m| {
                     serde_json::json!({
@@ -268,45 +295,84 @@ pub(crate) async fn chat(
                     })
                 })
                 .collect();
-            let body = serde_json::json!({
-                "contents": contents,
-                "systemInstruction": system_instruction,
-                "generationConfig": {"temperature": 0.7}
-            });
-            let resp = http_client()
-                .post(&url)
-                .header("x-goog-api-key", &cfg.api_key)
-                .json(&body)
-                .send()
-                .await
-                .map_err(|e| format!("Gemini injoignable ({e}) — connexion internet ?"))?;
-            if !resp.status().is_success() {
-                // le message utilisateur ne doit pas rester orphelin dans l'historique
-                state.history.lock().unwrap().pop();
-                return Err(http_error("Gemini", resp).await);
-            }
 
-            // Flux SSE : lignes "data: {...}"
             let mut full = String::new();
-            let mut buffer = String::new();
-            let mut stream = resp.bytes_stream();
-            while let Some(chunk) = stream.next().await {
-                let bytes = chunk.map_err(|e| e.to_string())?;
-                buffer.push_str(&String::from_utf8_lossy(&bytes));
-                while let Some(pos) = buffer.find('\n') {
+            eprintln!("[oz] {} brain : question envoyée à Gemini", crate::journal::clock_ms());
+            for _round in 0..5 {
+                let body = serde_json::json!({
+                    "contents": contents,
+                    "systemInstruction": system_instruction,
+                    "tools": crate::tools::declarations(),
+                    "generationConfig": {"temperature": 0.7}
+                });
+                let resp = match http_client()
+                    .post(&url)
+                    .header("x-goog-api-key", &cfg.api_key)
+                    .json(&body)
+                    .send()
+                    .await
+                {
+                    Ok(r) => r,
+                    Err(e) => {
+                        state.history.lock().unwrap().pop();
+                        return Err(format!("Gemini injoignable ({e}) — connexion internet ?"));
+                    }
+                };
+                if !resp.status().is_success() {
+                    // le message utilisateur ne doit pas rester orphelin dans l'historique
+                    state.history.lock().unwrap().pop();
+                    return Err(http_error("Gemini", resp).await);
+                }
 
-
-                    let line: String = buffer.drain(..=pos).collect();
-                    let line = line.trim();
-                    if !line.starts_with("data: ") { continue; }
-                    let Ok(v) = serde_json::from_str::<serde_json::Value>(&line[6..]) else { continue };
-                    if let Some(tok) = v["candidates"][0]["content"]["parts"][0]["text"].as_str() {
-                        if !tok.is_empty() {
-                            full.push_str(tok);
-                            let _ = on_chunk.send(tok.to_string());
+                // Flux SSE : lignes "data: {...}". On garde TOUTES les parts du
+                // modèle telles quelles (signatures de pensée comprises) pour
+                // les lui renvoyer avec le résultat des outils.
+                let mut model_parts: Vec<serde_json::Value> = Vec::new();
+                let mut calls: Vec<serde_json::Value> = Vec::new();
+                let mut buffer = String::new();
+                let mut stream = resp.bytes_stream();
+                while let Some(chunk) = stream.next().await {
+                    let bytes = chunk.map_err(|e| e.to_string())?;
+                    buffer.push_str(&String::from_utf8_lossy(&bytes));
+                    while let Some(pos) = buffer.find('\n') {
+                        let line: String = buffer.drain(..=pos).collect();
+                        let line = line.trim();
+                        if !line.starts_with("data: ") { continue; }
+                        let Ok(v) = serde_json::from_str::<serde_json::Value>(&line[6..]) else { continue };
+                        let Some(parts) = v["candidates"][0]["content"]["parts"].as_array() else { continue };
+                        for part in parts {
+                            model_parts.push(part.clone());
+                            if part["thought"].as_bool() == Some(true) {
+                                continue; // pensée interne : jamais affichée ni lue
+                            }
+                            if part.get("functionCall").is_some() {
+                                calls.push(part["functionCall"].clone());
+                            } else if let Some(tok) = part["text"].as_str() {
+                                if !tok.is_empty() {
+                                    if full.is_empty() {
+                                        eprintln!("[oz] {} brain : premier mot de la réponse", crate::journal::clock_ms());
+                                    }
+                                    full.push_str(tok);
+                                    let _ = on_chunk.send(tok.to_string());
+                                }
+                            }
                         }
                     }
                 }
+                if calls.is_empty() {
+                    break; // réponse finale
+                }
+                // exécute les outils demandés, puis renvoie les résultats au modèle
+                contents.push(serde_json::json!({"role": "model", "parts": model_parts}));
+                let mut responses = Vec::new();
+                for call in calls {
+                    let name = call["name"].as_str().unwrap_or("").to_string();
+                    let result = crate::tools::run(&app, &name, &call["args"]).await;
+                    responses.push(serde_json::json!({
+                        "functionResponse": {"name": name, "response": {"result": result}}
+                    }));
+                }
+                contents.push(serde_json::json!({"role": "user", "parts": responses}));
             }
             state.history.lock().unwrap().push(ChatMessage {
                 role: "assistant".into(),

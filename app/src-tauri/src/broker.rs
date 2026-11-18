@@ -114,6 +114,9 @@ pub(crate) fn detect_action(msg: &str) -> Option<(String, String)> {
         "quelles app", "quelle app", "apps ouvertes", "applications ouvertes",
         "fenêtres ouvertes", "fenetres ouvertes", "liste des fenêtres",
         "liste des fenetres", "qui est ouvert", "ce qui est ouvert",
+        "liste les fenêtres", "liste les fenetres", "liste les applications",
+        "liste les apps", "quelles fenêtres", "quelles fenetres",
+        "lister les fenêtres", "lister les fenetres",
     ] {
         if m.contains(trigger) {
             return Some(("list".into(), String::new()));
@@ -146,11 +149,47 @@ pub(crate) fn detect_action(msg: &str) -> Option<(String, String)> {
     None
 }
 
+/// Position du verbe dans le message, en MOT ENTIER uniquement :
+/// « ferme » ne doit pas se déclencher dans « la ferme », « fermer » ou
+/// « referme » ; « active » pas dans « désactive » ; « affiche » pas dans
+/// « affiche-moi » (le trait d'union lie le mot suivant).
+fn find_word(msg: &str, verb: &str) -> Option<usize> {
+    let is_word = |c: char| c.is_alphanumeric() || c == '-' || c == '_';
+    msg.match_indices(verb).map(|(i, _)| i).find(|&i| {
+        let before_ok = msg[..i].chars().next_back().map_or(true, |c| !is_word(c) && c != '\'');
+        let after_ok = msg[i + verb.len()..].chars().next().map_or(true, |c| !is_word(c));
+        // précédé d'un article, c'est un nom : « la ferme », « une active »
+        let prev = msg[..i].split_whitespace().next_back().unwrap_or("");
+        let is_noun = ["la", "le", "une", "un", "ma", "ta", "sa", "cette", "notre", "votre", "leur"]
+            .contains(&prev);
+        before_ok && after_ok && !is_noun
+    })
+}
+
+/// Formules de politesse et ponctuation en fin de phrase, pas des cibles.
+const TRAILING: [&str; 7] = ["stp", "svp", "s'il te plaît", "s'il te plait", "merci", "please", "pour moi"];
+
 /// Extrait la cible après un verbe, en retirant les déterminants.
 pub(crate) fn extract_target(msg: &str, verb: &str, stopwords: &[&str]) -> Option<String> {
-    let idx = msg.find(verb)?;
+    let idx = find_word(msg, verb)?;
+    let mut after = msg[idx + verb.len()..]
+        .trim()
+        .trim_end_matches(['.', '!', '?', ',', ' '])
+        .to_string();
+    // « ferme chrome stp » -> « chrome »
+    loop {
+        let before = after.len();
+        for t in TRAILING {
+            if let Some(s) = after.strip_suffix(t) {
+                after = s.trim_end_matches(['.', '!', '?', ',', ' ']).to_string();
+            }
+        }
+        if after.len() == before {
+            break;
+        }
+    }
     // « l'application » -> « l application » pour traiter chaque mot séparément
-    let after = msg[idx + verb.len()..].replace("l'", "l ");
+    let after = after.replace("l'", "l ");
     let mut words: Vec<&str> = after
         .trim()
         .trim_start_matches([' ', ':', '\'', '"'])
@@ -324,6 +363,32 @@ mod tests {
         assert_eq!(detect_action("ferme la fenêtre notepad"), Some(("close".into(), "notepad".into())));
         assert_eq!(detect_action("ferme l'application spotify"), Some(("close".into(), "spotify".into())));
         assert_eq!(detect_action("mets le programme vlc au premier plan"), Some(("focus".into(), "vlc".into())));
+    }
+
+    #[test]
+    fn verbs_match_whole_words_only() {
+        // conversation ordinaire : aucun verbe d'action en mot entier
+        assert_eq!(detect_action("j'ai visité la ferme de mon oncle"), None);
+        assert_eq!(detect_action("tu me permets une question ?"), None);
+        assert_eq!(detect_action("comment je désactive les notifications"), None);
+        assert_eq!(detect_action("affiche-moi la météo"), None);
+        // infinitifs : la cible ne doit pas garder un bout du verbe (« r chrome »)
+        assert_eq!(detect_action("fermer chrome"), Some(("close".into(), "chrome".into())));
+        assert_eq!(detect_action("peux-tu afficher spotify"), Some(("focus".into(), "spotify".into())));
+    }
+
+    #[test]
+    fn list_accepts_common_phrasings() {
+        for msg in ["liste les fenêtres", "tu peux lister les fenetres ?", "quelles fenêtres sont là", "liste les applications"] {
+            assert_eq!(detect_action(msg), Some(("list".into(), String::new())), "{msg}");
+        }
+    }
+
+    #[test]
+    fn politeness_is_not_part_of_the_target() {
+        assert_eq!(detect_action("ferme chrome stp"), Some(("close".into(), "chrome".into())));
+        assert_eq!(detect_action("Ferme Spotify s'il te plaît !"), Some(("close".into(), "spotify".into())));
+        assert_eq!(detect_action("mets vlc au premier plan, merci"), Some(("focus".into(), "vlc".into())));
     }
 
     #[test]

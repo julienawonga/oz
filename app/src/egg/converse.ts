@@ -1,8 +1,8 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
-import { claimVoice, markVoiceClosed, releaseVoice, stopVoice } from "./audio";
+import { claimVoice, markVoiceClosed, READ_ALOUD, releaseVoice, stopVoice } from "./audio";
 import { hideChatBar } from "./chatbar";
-import { handleLocalIntent } from "./intents";
+import "./intents"; // exécute les actions du corps demandées par le cerveau
 import { state } from "./state";
 import { chatBar, chatInput, say, setThinking, showBubble } from "./ui";
 
@@ -25,19 +25,20 @@ document.getElementById("chat-send")!.addEventListener("click", (e) => {
 });
 chatBar.addEventListener("pointerdown", (e) => e.stopPropagation());
 
-const READ_ALOUD = "Lis à voix haute, mot pour mot, sans rien ajouter ni commenter, ce texte : ";
-
 // La parole de Julien (micro) passe par le même chemin que le texte :
 // intentions locales, broker de permissions, mémoire, puis cerveau.
 state.onUserSpeech = (text) => {
   void converse(text);
 };
 
-export async function converse(text: string): Promise<void> {
-  state.lastUserIntent = text;
+// Numéro de la question en cours : une nouvelle question rend la précédente
+// obsolète, ses phrases restantes ne doivent plus partir à la voix.
+let currentTurn = 0;
 
-  // Commandes locales instantanées (maison, zones, vision, déplacement, pose)
-  if (await handleLocalIntent(text)) return;
+export async function converse(text: string): Promise<void> {
+  const myTurn = ++currentTurn;
+  const stale = (): boolean => myTurn !== currentTurn;
+  state.lastUserIntent = text;
 
   stopVoice(); // une nouvelle question coupe la réponse précédente
   void emit("oz://chat-line", { role: "user", text }); // miroir dans le panneau
@@ -48,11 +49,21 @@ export async function converse(text: string): Promise<void> {
     let fed = 0;
     let spokeIntro = false;
     let voiceErrorShown = false;
+    // Envois vocaux STRICTEMENT dans l'ordre : la première phrase ouvre la
+    // session (~1 s) ; sans file, les phrases suivantes et surtout voice_end
+    // pouvaient la doubler -> tour clos avant le texte -> Oz restait muet.
+    let voiceChain: Promise<void> = Promise.resolve();
     // Live ne doit pas répondre de lui-même : on lui demande de LIRE le texte du cerveau
     const feed = (piece: string): Promise<void> => {
       claimVoice();
       const text = spokeIntro ? piece : READ_ALOUD + piece;
       spokeIntro = true;
+      voiceChain = voiceChain.then(() => sendPiece(text));
+      return voiceChain;
+    };
+    const sendPiece = (text: string): Promise<void> => {
+      // session en échec, ou question remplacée par une plus récente : on se tait
+      if (voiceErrorShown || stale()) return Promise.resolve();
       return invoke<void>("voice_feed", { text }).catch((err) => {
         // la voix ne doit jamais échouer en silence : on le dit une fois dans la bulle
         if (!voiceErrorShown) {
@@ -91,8 +102,11 @@ export async function converse(text: string): Promise<void> {
       const tail = spoken.slice(fed).trim();
       if (tail) await feed(tail);
       if (spokeIntro) {
-        markVoiceClosed();
-        void invoke("voice_end").catch((err) => say("🎙️ " + String(err).slice(0, 100), 6000));
+        await voiceChain; // toutes les phrases sont parties AVANT de clore le tour
+        if (!voiceErrorShown && !stale()) {
+          markVoiceClosed();
+          void invoke("voice_end").catch((err) => say("🎙️ " + String(err).slice(0, 100), 6000));
+        }
       }
     } else {
       invoke("speak", { text: reply }).catch(() => {});

@@ -21,7 +21,7 @@ function noteActivity(): void {
   heardSomething = true;
 }
 // la transcription renvoyée par le serveur compte aussi comme activité
-void listen<string>("oz://user-text", noteActivity);
+void listen<string>("oz://voice-user-text", noteActivity);
 
 micBtn.addEventListener("click", (e) => {
   e.stopPropagation();

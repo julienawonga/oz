@@ -14,7 +14,7 @@ use windows::Win32::System::Threading::{
     PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetForegroundWindow, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
+    EnumWindows, GetForegroundWindow, GetWindow, GetWindowRect, GW_HWNDNEXT, GetWindowTextLengthW, GetWindowTextW,
     GetWindowThreadProcessId, IsWindowVisible, PostMessageW, SetForegroundWindow, ShowWindow,
     SW_RESTORE, WM_CLOSE,
 };
@@ -25,6 +25,10 @@ const PW_RENDERFULLCONTENT: PRINT_WINDOW_FLAGS = PRINT_WINDOW_FLAGS(2u32);
 pub struct AppWindow {
     pub(crate) title: String,
     pub(crate) process: String,
+    /// nom lisible de l'application (« Chrome », « VS Code »)
+    pub(crate) app: String,
+    /// titre nettoyé pour l'affichage
+    pub(crate) label: String,
 }
 
 pub(crate) unsafe fn window_title(hwnd: HWND) -> String {
@@ -210,6 +214,8 @@ pub(crate) fn list_windows() -> Result<Vec<AppWindow>, String> {
     Ok(enumerate_windows()
         .into_iter()
         .map(|w| AppWindow {
+            app: friendly_name(&w.process),
+            label: clean_title(&w.title),
             title: w.title,
             process: w.process,
         })
@@ -271,8 +277,26 @@ pub(crate) fn capture_window_png(hwnd: HWND) -> Result<Vec<u8>, String> {
 }
 
 /// Handle de la fenêtre actuellement au premier plan (0 si aucune).
-pub(crate) fn foreground_hwnd() -> isize {
-    unsafe { GetForegroundWindow().0 as isize }
+/// La fenêtre que Julien utilise : la fenêtre au premier plan, ou, si
+/// c'est l'œuf ou le panneau d'Oz (exclus de `windows`), la suivante dans
+/// l'ordre d'empilement. Quand on parle à Oz, c'est lui qui a le focus.
+pub(crate) fn active_window(windows: Vec<WindowHandle>) -> Option<WindowHandle> {
+    unsafe {
+        let mut h = GetForegroundWindow();
+        for _ in 0..500 {
+            if h.0.is_null() {
+                return None;
+            }
+            if let Some(i) = windows.iter().position(|w| w.hwnd == h.0 as isize) {
+                return windows.into_iter().nth(i);
+            }
+            h = match GetWindow(h, GW_HWNDNEXT) {
+                Ok(next) => next,
+                Err(_) => return None,
+            };
+        }
+    }
+    None
 }
 
 impl WindowHandle {
