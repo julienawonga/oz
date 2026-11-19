@@ -162,6 +162,12 @@ pub(crate) async fn run(app: &AppHandle, name: &str, args: &Value) -> String {
 
 async fn dispatch(app: &AppHandle, name: &str, args: &Value) -> String {
     let arg = |k: &str| args[k].as_str().unwrap_or("").trim().to_string();
+    // 🔐 après « arrête de regarder », le code bloque tout regard
+    let wants_look = name == "regarder_fenetre" || (name == "regarder_avec_moi" && arg("action") != "arreter");
+    if wants_look && crate::watch::look_paused() {
+        log_event(app, "watch", &format!("regard bloqué pendant la pause : {name}"));
+        return crate::kernel::ask_look(app, name, args);
+    }
     match name {
         "lister_fenetres" => {
             execute_action(&app.state::<BrokerState>(), app, "list", "")
@@ -335,8 +341,10 @@ fn zone(app: &AppHandle, op: &str) -> String {
     }
 }
 
-/// Arrête « Regarde avec moi » s'il est en cours.
+/// Arrête « Regarde avec moi » s'il est en cours (fin de conversation :
+/// la pause du regard repart aussi de zéro).
 fn stop_watching(app: &AppHandle) {
+    crate::watch::clear_look_pause();
     if crate::watch::current().is_some() {
         crate::watch::stop(app, "fin de la conversation");
     }

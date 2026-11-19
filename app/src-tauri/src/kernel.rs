@@ -69,6 +69,8 @@ enum Pending {
     Read(PathBuf),
     ToolTest(String),
     ToolRun(String, Value),
+    /// Regard demandé pendant la pause : (outil, arguments).
+    Look(String, Value),
 }
 
 static PENDING: Mutex<Vec<(u64, Pending)>> = Mutex::new(Vec::new());
@@ -101,6 +103,10 @@ pub(crate) async fn exec_decision(app: AppHandle, id: u64, allow: bool) -> Resul
             Pending::Command(cmd) => run_powershell(&app, &cmd, None).await,
             Pending::Read(path) => read_file(&path),
             Pending::ToolTest(name) => test_tool(&app, &name).await,
+            Pending::Look(tool, args) => {
+                crate::watch::clear_look_pause();
+                crate::tools::run(&app, &tool, &args).await
+            }
             Pending::ToolRun(name, args) => match load_tool(&app, &name) {
                 Some(tool) => {
                     approve(&app, &name, &tool.code);
@@ -112,6 +118,18 @@ pub(crate) async fn exec_decision(app: AppHandle, id: u64, allow: bool) -> Resul
         format!("[Note interne] Julien a accepté. Résultat :\n{result}\nRésume-le-lui brièvement, ou continue ce que tu faisais.")
     };
     crate::voice::live_prompt(app, note).await
+}
+
+/// Regard pendant la pause « arrête de regarder » : Julien doit toucher
+/// le badge. Le modèle seul ne peut pas lever la pause.
+pub(crate) fn ask_look(app: &AppHandle, tool: &str, args: &Value) -> String {
+    let target = args["cible"].as_str().filter(|c| !c.is_empty()).unwrap_or("la fenêtre que tu utilises");
+    let _ = ask(app, Pending::Look(tool.to_string(), args.clone()), "Oz veut regarder ton écran", &format!(
+        "Tu lui avais demandé d'arrêter de regarder.\nIl voudrait regarder : {target}"
+    ));
+    "Julien t'a demandé d'arrêter de regarder : tu ne peux pas regarder sans son accord. Si c'est lui qui te le \
+     redemande, dis-lui de toucher le badge sur l'œuf ; sinon, n'insiste pas et ne regarde rien."
+        .into()
 }
 
 // ── Les quatre outils ──
