@@ -52,8 +52,17 @@ async function resolveAccess(level: "look" | "act" | "sanctuary" | "none"): Prom
   refreshAccessBadge();
   if (accessQueue.length) openAccessCard();
   if ((level === "look" || level === "act") && req.intent) {
-    // accord donné -> on rejoue la demande d'origine sans la faire répéter
-    void converse(req.intent);
+    // accord donné -> on rejoue la demande d'origine sans la faire répéter.
+    // En pleine conversation vocale, dans la session Live elle-même : le
+    // cerveau texte, lui, répondait sans relancer l'outil (vue jamais lancée).
+    if (state.micRunning) {
+      const verb = level === "act" ? "agir sur" : "regarder";
+      void invoke("live_prompt", {
+        text: `[Note interne] Julien vient de t'autoriser à ${verb} ${req.app}. Refais maintenant sa demande avec le bon outil, sans commenter l'autorisation : « ${req.intent} »`,
+      }).catch(() => void converse(req.intent));
+    } else {
+      void converse(req.intent);
+    }
   }
 }
 

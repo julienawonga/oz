@@ -18,9 +18,11 @@ mod journal;
 mod memory;
 mod places;
 mod prefs;
+mod skills;
 mod tools;
 mod vision;
 mod voice;
+mod volume;
 mod watch;
 pub mod windows_api;
 mod zones;
@@ -111,6 +113,11 @@ pub fn run() {
             memory::clear_memory,
             memory::get_facts,
             memory::forget_fact,
+            volume::mute_system,
+            volume::duck_others,
+            skills::get_skills,
+            skills::save_skill,
+            skills::delete_skill,
             voice::voice_feed,
             voice::voice_end,
             voice::mic_chunk,
@@ -121,6 +128,12 @@ pub fn run() {
             initiative::initiative_result,
             initiative::initiative_try
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|_, event| {
+            // ne jamais laisser les autres applis baissées après Oz
+            if let tauri::RunEvent::Exit = event {
+                volume::restore_on_exit();
+            }
+        });
 }

@@ -60,7 +60,7 @@ fn start(app: &AppHandle, target: &str) -> String {
     )
 }
 
-fn stop(app: &AppHandle, why: &str) -> String {
+pub(crate) fn stop(app: &AppHandle, why: &str) -> String {
     WATCH_ID.fetch_add(1, Ordering::SeqCst);
     let was = WATCHING.lock().unwrap().take();
     let _ = app.emit("oz://watch", serde_json::json!({"active": false}));

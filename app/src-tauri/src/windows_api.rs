@@ -8,6 +8,7 @@ use windows::Win32::Graphics::Gdi::{
     BI_RGB, BITMAPINFO, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject,
     DIB_RGB_COLORS, GetDC, ReleaseDC, SelectObject,
 };
+use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
 use windows::Win32::Storage::Xps::{PrintWindow, PRINT_WINDOW_FLAGS};
 use windows::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
@@ -16,7 +17,7 @@ use windows::Win32::System::Threading::{
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetForegroundWindow, IsIconic, GetWindow, GetWindowRect, GW_HWNDNEXT, GetWindowTextLengthW, GetWindowTextW,
     GetWindowThreadProcessId, IsWindowVisible, PostMessageW, SetForegroundWindow, ShowWindow,
-    SW_RESTORE, WM_CLOSE,
+    SW_RESTORE, WM_CLOSE, GetWindowLongPtrW, GWL_EXSTYLE, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
 };
 
 const PW_RENDERFULLCONTENT: PRINT_WINDOW_FLAGS = PRINT_WINDOW_FLAGS(2u32);
@@ -62,7 +63,7 @@ pub(crate) unsafe fn process_image_name(pid: u32) -> String {
 unsafe extern "system" fn enum_callback(hwnd: HWND, lparam: LPARAM) -> BOOL {
     unsafe {
         let list = &mut *(lparam.0 as *mut Vec<WindowHandle>);
-        if IsWindowVisible(hwnd).as_bool() {
+        if IsWindowVisible(hwnd).as_bool() && !is_hidden_overlay(hwnd) {
             let title = window_title(hwnd);
             if !title.is_empty() {
                 let mut pid = 0u32;
@@ -79,6 +80,28 @@ unsafe extern "system" fn enum_callback(hwnd: HWND, lparam: LPARAM) -> BOOL {
             }
         }
         true.into()
+    }
+}
+
+/// Fenêtres « visibles » pour Windows mais pas à l'écran : masquées par
+/// le compositeur (applis UWP en veille, surcouches comme « Actions par
+/// clic ») ou fenêtres outils, que la barre des tâches ignore aussi.
+/// Les capturer donne une image noire.
+unsafe fn is_hidden_overlay(hwnd: HWND) -> bool {
+    unsafe {
+        let mut cloaked = 0u32;
+        let cloaked_ok = DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_CLOAKED,
+            &mut cloaked as *mut u32 as *mut core::ffi::c_void,
+            std::mem::size_of::<u32>() as u32,
+        )
+        .is_ok();
+        if cloaked_ok && cloaked != 0 {
+            return true;
+        }
+        let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+        ex & WS_EX_TOOLWINDOW.0 != 0 && ex & WS_EX_APPWINDOW.0 == 0
     }
 }
 

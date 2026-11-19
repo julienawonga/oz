@@ -95,6 +95,7 @@ export async function startMicStream(): Promise<void> {
     };
     state.micRunning = true;
     micStarting = false;
+    void invoke("duck_others", { on: true }).catch(() => {}); // la vidéo ne couvre plus ta voix
     lastActivity = performance.now();
     heardSomething = false;
     robot.classList.add("listening"); // halo sur l'œuf : il t'écoute
@@ -133,4 +134,15 @@ export async function stopMicStream(): Promise<void> {
   void micAudioCtx?.close();
   micAudioCtx = null;
   await invoke("mic_end").catch(() => {}); // fin du flux → Gemini répond
+  // les autres applis remontent après la réponse d'Oz, pas pendant
+  void restoreOthersAfterReply();
+}
+
+/** Remet le son des autres applis une fois qu'Oz a fini de parler (sauf
+ *  si une nouvelle écoute a commencé entre-temps). */
+async function restoreOthersAfterReply(): Promise<void> {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  for (let waited = 0; waited < 4000 && !state.ozSpeaking; waited += 100) await sleep(100);
+  for (let waited = 0; waited < 30_000 && state.ozSpeaking; waited += 100) await sleep(100);
+  if (!state.micRunning) await invoke("duck_others", { on: false }).catch(() => {});
 }

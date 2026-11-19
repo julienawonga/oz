@@ -57,6 +57,13 @@ pub(crate) fn declarations() -> Value {
             }, "required": ["pose"]}
         },
         {
+            "name": "changer_plan",
+            "description": "Où Oz se place par rapport aux fenêtres. derriere : Oz passe derrière toutes les fenêtres, sur le bureau (quand Julien te demande de te mettre en arrière-plan, derrière les fenêtres, de ne plus le gêner). devant : Oz repasse au-dessus de toutes les fenêtres.",
+            "parameters": {"type": "object", "properties": {
+                "plan": {"type": "string", "enum": ["devant", "derriere"]}
+            }, "required": ["plan"]}
+        },
+        {
             "name": "zone_interdite",
             "description": "Gère les zones de l'écran où Oz n'a pas le droit d'aller. interdire_ici : l'endroit où se trouve Oz devient interdit. autoriser_ici : retire la zone à cet endroit. compter : combien de zones existent.",
             "parameters": {"type": "object", "properties": {
@@ -85,6 +92,21 @@ pub(crate) fn declarations() -> Value {
             "parameters": {"type": "object", "properties": {
                 "action": {"type": "string", "enum": ["commencer", "arreter"]},
                 "cible": {"type": "string", "description": "Application ou mot du titre. Vide pour la fenêtre que Julien utilise."}
+            }, "required": ["action"]}
+        },
+        {
+            "name": "lire_skill",
+            "description": "Charge les instructions complètes d'un de tes skills (la liste est dans tes consignes). À appeler dès que la situation correspond à la description d'un skill, avant d'agir ou de répondre.",
+            "parameters": {"type": "object", "properties": {
+                "nom": {"type": "string", "description": "Nom du skill, tel qu'il apparaît dans la liste."}
+            }, "required": ["nom"]}
+        },
+        {
+            "name": "volume",
+            "description": "Volume du son de l'ordinateur. monter / baisser : de 10 points par défaut, ou de valeur. regler : met le volume à valeur (0 à 100). niveau : dit où en est le volume. couper : coupe le son juste après ta réponse (dis un mot très bref). remettre : remet le son.",
+            "parameters": {"type": "object", "properties": {
+                "action": {"type": "string", "enum": ["monter", "baisser", "regler", "niveau", "couper", "remettre"]},
+                "valeur": {"type": "integer", "description": "Pas en points pour monter/baisser, niveau cible pour regler."}
             }, "required": ["action"]}
         },
         {
@@ -161,17 +183,23 @@ async fn dispatch(app: &AppHandle, name: &str, args: &Value) -> String {
         }
         "lieux" => crate::places::tool(app, &arg("operation"), &arg("nom")),
         "regarder_avec_moi" => crate::watch::tool(app, &arg("action"), &arg("cible").to_lowercase()),
+        "volume" => crate::volume::tool(app, &arg("action"), args["valeur"].as_i64()),
+        "lire_skill" => crate::skills::tool(app, &arg("nom")),
         "changer_pose" => {
             let _ = app.emit("oz://do", json!({"action": "pose", "pose": arg("pose")}));
             "Pose changée.".into()
         }
+        "changer_plan" => layer(app, &arg("plan")),
         "zone_interdite" => zone(app, &arg("operation")),
+        // fin de conversation : la vue en direct s'arrête aussi
         "finir_conversation" => {
             let _ = app.emit("oz://do", json!({"action": "end"}));
+            stop_watching(app);
             "Conversation terminée : le micro se coupe après ta réponse.".into()
         }
         "pas_maintenant" => {
             let _ = app.emit("oz://do", json!({"action": "end"}));
+            stop_watching(app);
             crate::initiative::snooze(app, args["minutes"].as_u64().unwrap_or(60))
         }
         other => format!("Outil inconnu : {other}"),
@@ -213,5 +241,36 @@ fn zone(app: &AppHandle, op: &str) -> String {
         "interdire_ici" => "Zone interdite ajoutée à l'endroit où se trouve Oz.".into(),
         _ if zones.len() < before => "Zone retirée.".into(),
         _ => "Il n'y avait pas de zone à cet endroit.".into(),
+    }
+}
+
+/// Arrête « Regarde avec moi » s'il est en cours.
+fn stop_watching(app: &AppHandle) {
+    if crate::watch::current().is_some() {
+        crate::watch::stop(app, "fin de la conversation");
+    }
+}
+
+/// Devant toutes les fenêtres (par défaut) ou derrière, sur le bureau.
+fn layer(app: &AppHandle, plan: &str) -> String {
+    let Some(win) = app.get_webview_window("oz") else {
+        return "Fenêtre d'Oz introuvable.".into();
+    };
+    let behind = plan == "derriere";
+    let done = if behind {
+        win.set_always_on_top(false).and_then(|_| win.set_always_on_bottom(true))
+    } else {
+        win.set_always_on_bottom(false).and_then(|_| win.set_always_on_top(true))
+    };
+    match done {
+        Ok(()) => {
+            log_event(app, "plan", if behind { "derrière les fenêtres" } else { "devant les fenêtres" });
+            if behind {
+                "Oz est maintenant derrière toutes les fenêtres, sur le bureau.".into()
+            } else {
+                "Oz est de nouveau au-dessus de toutes les fenêtres.".into()
+            }
+        }
+        Err(e) => format!("Impossible de changer de plan ({e})."),
     }
 }

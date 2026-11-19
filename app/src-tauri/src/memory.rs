@@ -244,9 +244,11 @@ pub(crate) fn get_facts(app: AppHandle) -> Vec<Fact> {
 }
 
 #[tauri::command]
-pub(crate) fn forget_fact(app: AppHandle, ts: u64) -> Result<(), String> {
+pub(crate) fn forget_fact(app: AppHandle, ts: u64, content: String) -> Result<(), String> {
+    // les faits d'une même consolidation partagent leur ts : le contenu
+    // (unique grâce au dédoublonnage) désigne le bon
     let mut facts = load_facts(&app);
-    facts.retain(|f| f.ts != ts);
+    facts.retain(|f| !(f.ts == ts && f.content == content));
     fs::write(facts_path(&app), serde_json::to_string_pretty(&facts).unwrap())
         .map_err(|e| e.to_string())
 }
