@@ -366,8 +366,11 @@ pub(crate) fn spawn(app: AppHandle) {
                 r.retain(|t| now.saturating_sub(*t) < 3600);
                 r.len()
             };
-            let blocked = if !crate::prefs::current(&app).initiative {
+            let prefs = crate::prefs::current(&app);
+            let blocked = if !prefs.initiative {
                 Some("réglage coupé")
+            } else if prefs.move_mode == "concentration" {
+                Some("mode concentration")
             } else if pending(now) {
                 Some("prise de parole déjà en cours")
             } else if now < SNOOZE_UNTIL.load(Ordering::Relaxed) {

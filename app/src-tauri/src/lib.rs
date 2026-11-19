@@ -90,7 +90,11 @@ pub fn run() {
             if let Err(e) = prefs::apply_shortcut(app.handle(), &prefs.mic_shortcut) {
                 journal::log_event(app.handle(), "prefs", &e);
             }
+            let behind = prefs.behind;
             app.manage(prefs::PrefsState(Mutex::new(prefs)));
+            if behind {
+                let _ = tools::apply_layer(app.handle(), true);
+            }
             initiative::spawn(app.handle().clone());
             Ok(())
         })

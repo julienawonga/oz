@@ -1,6 +1,6 @@
 import { getCurrentWindow, currentMonitor, PhysicalPosition } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
-import { state } from "./state";
+import { onPrefs, state } from "./state";
 import { accessCard, robot, say } from "./ui";
 
 // ── Poses, déplacements, zones interdites, autonomie ─────────────────
@@ -142,14 +142,47 @@ export async function glideTo(tx?: number, ty?: number): Promise<void> {
   applyPose("walk");
 }
 
+// ── Modes de déplacement (réglage, ou demandé à la voix) ──
+// libre : il se balade ; fixe : il reste où on le pose ; bord : il se pose
+// au bord de l'écran le plus proche ; concentration : petit et discret
+// dans le coin en bas à droite, sans balade ni prise de parole.
+let appliedMode = "";
+onPrefs((p, first) => {
+  const mode = p.move_mode || "libre";
+  robot.classList.toggle("focus-mode", mode === "concentration");
+  if (mode === appliedMode) return;
+  appliedMode = mode;
+  // au démarrage, on ne déplace pas un œuf que Julien a déjà posé
+  if (first && mode !== "concentration") return;
+  if (mode === "bord") void glideToEdge();
+  if (mode === "concentration") void glideToCorner();
+});
+
+async function glideToEdge(): Promise<void> {
+  const b = await eggBounds();
+  const { x, y } = b.pos;
+  const d = { left: x - b.minX, right: b.maxX - x, bottom: b.maxY - y, top: y - b.minY };
+  const nearest = (Object.keys(d) as Array<keyof typeof d>).reduce((a, k) => (d[k] < d[a] ? k : a), "bottom");
+  if (nearest === "left") await glideTo(b.minX, y);
+  else if (nearest === "right") await glideTo(b.maxX, y);
+  else if (nearest === "top") await glideTo(x, b.minY);
+  else await glideTo(x, b.maxY);
+}
+
+async function glideToCorner(): Promise<void> {
+  const b = await eggBounds();
+  await glideTo(b.maxX, b.maxY);
+}
+
 // Boucle d'autonomie : il vit sa vie quand personne ne l'occupe
 setInterval(() => {
   if (
     state.dragging || state.thinking || state.ozSpeaking || state.micRunning || state.performing ||
     pose !== "idle" || !accessCard.classList.contains("hidden")
   ) return;
+  if (state.moveMode === "concentration") return; // il ne bouge plus du tout
   const r = Math.random();
-  if (r < 0.3) {
+  if (r < 0.3 && state.moveMode === "libre") {
     void startStroll();
   } else if (r < 0.45) {
     applyPose("sit");

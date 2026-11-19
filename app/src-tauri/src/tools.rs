@@ -57,6 +57,21 @@ pub(crate) fn declarations() -> Value {
             }, "required": ["pose"]}
         },
         {
+            "name": "mode_deplacement",
+            "description": "Comment Oz se déplace de lui-même. libre : il se balade sur l'écran. fixe : il reste où il est. bord : il se pose au bord de l'écran le plus proche et y reste. concentration : il se fait petit et discret dans un coin, ne bouge plus et ne prend plus la parole de lui-même (quand Julien veut se concentrer, travailler tranquille).",
+            "parameters": {"type": "object", "properties": {
+                "mode": {"type": "string", "enum": ["libre", "fixe", "bord", "concentration"]}
+            }, "required": ["mode"]}
+        },
+        {
+            "name": "personnaliser_oeuf",
+            "description": "Change l'apparence d'Oz : sa couleur et/ou sa texture, quand Julien le demande. Traduis la couleur demandée en code #rrggbb (rose : #f472b6, vert : #4ade80, violet : #a78bfa, orange : #fb923c, rouge : #f87171, jaune : #facc15...) ; « origine » remet le bleu d'origine.",
+            "parameters": {"type": "object", "properties": {
+                "couleur": {"type": "string", "description": "#rrggbb, ou « origine »"},
+                "texture": {"type": "string", "enum": ["lisse", "points", "rayures", "etoiles", "taches"]}
+            }}
+        },
+        {
             "name": "changer_plan",
             "description": "Où Oz se place par rapport aux fenêtres. derriere : Oz passe derrière toutes les fenêtres, sur le bureau (quand Julien te demande de te mettre en arrière-plan, derrière les fenêtres, de ne plus le gêner). devant : Oz repasse au-dessus de toutes les fenêtres.",
             "parameters": {"type": "object", "properties": {
@@ -208,7 +223,48 @@ async fn dispatch(app: &AppHandle, name: &str, args: &Value) -> String {
             let _ = app.emit("oz://do", json!({"action": "pose", "pose": arg("pose")}));
             "Pose changée.".into()
         }
-        "changer_plan" => layer(app, &arg("plan")),
+        "changer_plan" => {
+            let behind = arg("plan") == "derriere";
+            match crate::prefs::update(app, |p| p.behind = behind).await {
+                Ok(()) if behind => "Oz est maintenant derrière toutes les fenêtres, sur le bureau (gardé au redémarrage).".into(),
+                Ok(()) => "Oz est de nouveau au-dessus de toutes les fenêtres.".into(),
+                Err(e) => format!("Impossible de changer de plan ({e})."),
+            }
+        }
+        "mode_deplacement" => {
+            let mode = arg("mode");
+            match crate::prefs::update(app, |p| p.move_mode = mode.clone()).await {
+                Ok(()) => match mode.as_str() {
+                    "libre" => "Mode libre : tu te balades à nouveau sur l'écran.".into(),
+                    "fixe" => "Mode fixe : tu ne bouges plus de toi-même ; Julien peut toujours te déplacer.".into(),
+                    "bord" => "Mode ancré : tu te poses au bord de l'écran le plus proche et tu y restes.".into(),
+                    _ => "Mode concentration : tu te fais petit dans un coin, tu ne bouges plus et tu ne prends plus la parole de toi-même. Dis-le en trois mots.".into(),
+                },
+                Err(e) => format!("Impossible : {e}"),
+            }
+        }
+        "personnaliser_oeuf" => {
+            let couleur = arg("couleur");
+            let texture = arg("texture");
+            if !couleur.is_empty() && couleur != "origine" && !crate::prefs::is_hex_color(&couleur) {
+                return format!("Couleur « {couleur} » invalide : donne-la en #rrggbb.");
+            }
+            match crate::prefs::update(app, |p| {
+                if couleur == "origine" {
+                    p.egg_color.clear();
+                } else if !couleur.is_empty() {
+                    p.egg_color = couleur.to_lowercase();
+                }
+                if !texture.is_empty() {
+                    p.egg_texture = texture.clone();
+                }
+            })
+            .await
+            {
+                Ok(()) => "C'est fait, ton apparence a changé.".into(),
+                Err(e) => format!("Impossible : {e}"),
+            }
+        }
         "zone_interdite" => zone(app, &arg("operation")),
         // fin de conversation : la vue en direct s'arrête aussi
         "finir_conversation" => {
@@ -271,25 +327,14 @@ fn stop_watching(app: &AppHandle) {
 }
 
 /// Devant toutes les fenêtres (par défaut) ou derrière, sur le bureau.
-fn layer(app: &AppHandle, plan: &str) -> String {
-    let Some(win) = app.get_webview_window("oz") else {
-        return "Fenêtre d'Oz introuvable.".into();
-    };
-    let behind = plan == "derriere";
+pub(crate) fn apply_layer(app: &AppHandle, behind: bool) -> Result<(), String> {
+    let win = app.get_webview_window("oz").ok_or("Fenêtre d'Oz introuvable.")?;
     let done = if behind {
         win.set_always_on_top(false).and_then(|_| win.set_always_on_bottom(true))
     } else {
         win.set_always_on_bottom(false).and_then(|_| win.set_always_on_top(true))
     };
-    match done {
-        Ok(()) => {
-            log_event(app, "plan", if behind { "derrière les fenêtres" } else { "devant les fenêtres" });
-            if behind {
-                "Oz est maintenant derrière toutes les fenêtres, sur le bureau.".into()
-            } else {
-                "Oz est de nouveau au-dessus de toutes les fenêtres.".into()
-            }
-        }
-        Err(e) => format!("Impossible de changer de plan ({e})."),
-    }
+    done.map_err(|e| e.to_string())?;
+    log_event(app, "plan", if behind { "derrière les fenêtres" } else { "devant les fenêtres" });
+    Ok(())
 }

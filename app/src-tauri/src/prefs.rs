@@ -23,6 +23,29 @@ pub struct Prefs {
     /// Raccourci global qui ouvre le micro (vide = aucun).
     #[serde(default = "default_shortcut")]
     pub mic_shortcut: String,
+    /// libre (se balade), fixe (ne bouge plus seul), bord (ancré au bord
+    /// de l'écran), concentration (petit, discret, dans un coin, muet).
+    #[serde(default = "default_move_mode")]
+    pub move_mode: String,
+    /// Derrière toutes les fenêtres (sinon au-dessus).
+    #[serde(default)]
+    pub behind: bool,
+    /// Couleur de l'œuf (#rrggbb ; vide = bleu d'origine).
+    #[serde(default)]
+    pub egg_color: String,
+    /// lisse, points, rayures, etoiles, taches.
+    #[serde(default = "default_texture")]
+    pub egg_texture: String,
+}
+
+pub(crate) const MOVE_MODES: &[&str] = &["libre", "fixe", "bord", "concentration"];
+pub(crate) const TEXTURES: &[&str] = &["lisse", "points", "rayures", "etoiles", "taches"];
+
+fn default_move_mode() -> String {
+    "libre".into()
+}
+fn default_texture() -> String {
+    "lisse".into()
 }
 
 fn yes() -> bool {
@@ -42,6 +65,10 @@ impl Default for Prefs {
             initiative: true,
             language: default_language(),
             mic_shortcut: default_shortcut(),
+            move_mode: default_move_mode(),
+            behind: false,
+            egg_color: String::new(),
+            egg_texture: default_texture(),
         }
     }
 }
@@ -110,6 +137,18 @@ pub(crate) async fn set_prefs(app: AppHandle, prefs: Prefs) -> Result<(), String
     if !LANGUAGES.iter().any(|(c, _)| *c == prefs.language) {
         return Err(format!("Langue inconnue : {}", prefs.language));
     }
+    if !MOVE_MODES.contains(&prefs.move_mode.as_str()) {
+        return Err(format!("Mode de déplacement inconnu : {}", prefs.move_mode));
+    }
+    if !TEXTURES.contains(&prefs.egg_texture.as_str()) {
+        return Err(format!("Texture inconnue : {}", prefs.egg_texture));
+    }
+    if !prefs.egg_color.is_empty() && !is_hex_color(&prefs.egg_color) {
+        return Err(format!("Couleur invalide : {} (attendu #rrggbb)", prefs.egg_color));
+    }
+    if prefs.behind != old.behind {
+        crate::tools::apply_layer(&app, prefs.behind)?;
+    }
     if prefs.mic_shortcut != old.mic_shortcut {
         if let Err(e) = apply_shortcut(&app, &prefs.mic_shortcut) {
             let _ = apply_shortcut(&app, &old.mic_shortcut); // on garde l'ancien
@@ -128,4 +167,15 @@ pub(crate) async fn set_prefs(app: AppHandle, prefs: Prefs) -> Result<(), String
     }
     let _ = app.emit("oz://prefs-updated", prefs);
     Ok(())
+}
+
+pub(crate) fn is_hex_color(c: &str) -> bool {
+    c.len() == 7 && c.starts_with('#') && c[1..].chars().all(|x| x.is_ascii_hexdigit())
+}
+
+/// Modifie les réglages depuis un outil (même chemin que le panneau).
+pub(crate) async fn update(app: &AppHandle, f: impl FnOnce(&mut Prefs)) -> Result<(), String> {
+    let mut p = current(app);
+    f(&mut p);
+    set_prefs(app.clone(), p).await
 }
