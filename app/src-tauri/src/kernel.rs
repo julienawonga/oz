@@ -71,6 +71,8 @@ enum Pending {
     ToolRun(String, Value),
     /// Regard demandé pendant la pause : (outil, arguments).
     Look(String, Value),
+    /// Script de module modifié depuis l'installation.
+    ModuleRun { module: String, tool: String, script: String, code: String, args: Value },
 }
 
 static PENDING: Mutex<Vec<(u64, Pending)>> = Mutex::new(Vec::new());
@@ -100,9 +102,15 @@ pub(crate) async fn exec_decision(app: AppHandle, id: u64, allow: bool) -> Resul
         "[Note interne] Julien a refusé. N'insiste pas ; dis-le simplement en un mot si c'est utile.".to_string()
     } else {
         let result = match pending {
-            Pending::Command(cmd) => run_powershell(&app, &cmd, None).await,
+            Pending::Command(cmd) => run_powershell(&app, &cmd, None, None).await,
             Pending::Read(path) => read_text(&path),
             Pending::ToolTest(name) => test_tool(&app, &name).await,
+            Pending::ModuleRun { module, tool, script, code, args } => {
+                crate::modules::approve_script(&app, &module, &script, &code);
+                log_event(&app, "module", &format!("{module} : {tool} (script réapprouvé)"));
+                let dir = app.path().app_data_dir().expect("app_data_dir").join("modules").join(&module);
+                run_script(&app, &code, &args, &dir, &tool).await
+            }
             Pending::Look(tool, args) => {
                 crate::watch::clear_look_pause();
                 crate::tools::run(&app, &tool, &args).await
@@ -215,18 +223,18 @@ fn is_read_only(cmd: &str) -> bool {
 
 pub(crate) async fn run_command(app: &AppHandle, commande: &str) -> String {
     if is_read_only(commande) {
-        return run_powershell(app, commande, None).await;
+        return run_powershell(app, commande, None, None).await;
     }
     ask(app, Pending::Command(commande.to_string()), "Oz veut exécuter une commande", commande)
 }
 
 /// PowerShell sans profil ni fenêtre, dans l'atelier, avec délai.
-async fn run_powershell(app: &AppHandle, script: &str, args: Option<&Value>) -> String {
+async fn run_powershell(app: &AppHandle, script: &str, args: Option<&Value>, cwd: Option<&Path>) -> String {
     // sortie console en UTF-8, pour garder les accents
     let full = format!("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; {script}");
     let mut cmd = tokio::process::Command::new("powershell.exe");
     cmd.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &full])
-        .current_dir(atelier(app))
+        .current_dir(cwd.map(Path::to_path_buf).unwrap_or_else(|| atelier(app)))
         .kill_on_drop(true)
         .creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     if let Some(a) = args {
@@ -333,7 +341,25 @@ fn approve(app: &AppHandle, name: &str, code: &str) {
 
 async fn run_tool_script(app: &AppHandle, tool: &CustomTool, args: &Value) -> String {
     let script = format!("{PREAMBLE}{}", tool.code);
-    run_powershell(app, &script, Some(args)).await
+    run_powershell(app, &script, Some(args), None).await
+}
+
+/// Script d'un module installé, lancé dans le dossier du module.
+/// `$OzTool` donne l'outil appelé (un script peut servir à plusieurs).
+pub(crate) async fn run_script(app: &AppHandle, code: &str, args: &Value, dir: &Path, tool: &str) -> String {
+    // le nom d'outil est validé (minuscules, chiffres, _) : pas d'injection
+    let script = format!("{PREAMBLE}$OzTool = '{tool}'\n{code}");
+    run_powershell(app, &script, Some(args), Some(dir)).await
+}
+
+/// Script de module modifié depuis l'installation : accord de Julien.
+pub(crate) fn ask_module_run(app: &AppHandle, module: &str, tool: &str, script: &str, code: &str, args: &Value) -> String {
+    ask(
+        app,
+        Pending::ModuleRun { module: module.into(), tool: tool.into(), script: script.into(), code: code.into(), args: args.clone() },
+        &format!("Le module « {module} » a changé : « {tool} » veut tourner"),
+        code,
+    )
 }
 
 /// Test d'un outil (après accord) : il est adopté s'il sort sans erreur
@@ -469,16 +495,16 @@ pub(crate) fn toolsets() -> Vec<crate::toolsets::Toolset> {
         .partition(|d| d["name"] == "create_tool" || d["name"] == "use_tool");
     vec![
         crate::toolsets::Toolset {
-            id: "kernel",
-            label: "Noyau",
-            description: "Lire, écrire, modifier les fichiers de son atelier et lancer du PowerShell (avec ton accord, sauf lecture simple).",
+            id: "kernel".into(),
+            label: "Noyau".into(),
+            description: "Lire, écrire, modifier les fichiers de son atelier et lancer du PowerShell (avec ton accord, sauf lecture simple).".into(),
             core: false,
             tools: kernel,
         },
         crate::toolsets::Toolset {
-            id: "workshop",
-            label: "Atelier",
-            description: "Se fabriquer ses propres outils PowerShell, testés après ton accord, et s'en servir.",
+            id: "workshop".into(),
+            label: "Atelier".into(),
+            description: "Se fabriquer ses propres outils PowerShell, testés après ton accord, et s'en servir.".into(),
             core: false,
             tools: workshop,
         },

@@ -17,6 +17,7 @@ mod initiative;
 mod journal;
 mod kernel;
 mod memory;
+mod modules;
 mod places;
 mod prefs;
 mod skills;
@@ -125,6 +126,11 @@ pub fn run() {
             volume::duck_others,
             skills::get_skills,
             toolsets::get_toolsets,
+            modules::get_modules,
+            modules::prepare_module,
+            modules::install_module,
+            modules::cancel_module,
+            modules::uninstall_module,
             toolsets::set_toolset_enabled,
             kernel::exec_decision,
             kernel::get_custom_tools,

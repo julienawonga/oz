@@ -23,12 +23,18 @@
 - Mémoire traitée en fin de conversation ; un fait qui en contredit un autre le remplace.
 - Garde-fou du regard : après « arrête de regarder », plus aucune capture sans un geste de Julien.
 - Son des autres applis coupé pendant la conversation, remis même après un arrêt forcé d'Oz.
+- Outils rangés en toolsets (à la façon d'Hermes Agent), activables dans l'onglet Outils ; noms d'outils en anglais.
+- Modules installables (git ou dossier) : outils PowerShell et skills, code relu avant installation ; module d'exemple `window-sizes`.
 
 ## Ensuite
 
 - Fusionner la branche `feat/skills-volume-fixes` dans `main`.
 - Oz réagit de lui-même avec une émotion à ce qu'il voit ou entend (aujourd'hui, seulement quand il répond).
 - Oz réagit de lui-même à ce qu'il voit pendant « Regarde avec moi ».
+- Serveurs MCP : brancher les outils de l'écosystème MCP comme des toolsets, chaque appel passant par le broker.
+- Skills au format standard (agentskills.io, compatible Hermes) : importer ceux de la communauté.
+- Hooks : du code de module appelé en début et fin de conversation, avant une réponse.
+- Les outils fabriqués par Oz enregistrés au format module.
 - Outils pour les modèles locaux (Ollama), pour retirer le dernier routeur par mots-clés.
 - Vérifier si la reprise de session Live accepte une nouvelle liste d'outils (aujourd'hui, les outils fabriqués passent par `use_tool`).
 

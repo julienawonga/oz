@@ -264,9 +264,9 @@ pub(crate) fn restore_on_exit() {
 
 pub(crate) fn toolsets() -> Vec<crate::toolsets::Toolset> {
     vec![crate::toolsets::Toolset {
-        id: "sound",
-        label: "Son",
-        description: "Régler le volume de l'ordinateur à la voix.",
+        id: "sound".into(),
+        label: "Son".into(),
+        description: "Régler le volume de l'ordinateur à la voix.".into(),
         core: false,
         tools: vec![serde_json::json!({
             "name": "volume",

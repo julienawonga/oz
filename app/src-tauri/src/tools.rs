@@ -19,9 +19,9 @@ use crate::zones::{Zone, ZonesState};
 pub(crate) fn toolsets() -> Vec<Toolset> {
     vec![
         Toolset {
-            id: "windows",
-            label: "Fenêtres",
-            description: "Lister, fermer et ramener tes fenêtres, toujours derrière les permissions.",
+            id: "windows".into(),
+            label: "Fenêtres".into(),
+            description: "Lister, fermer et ramener tes fenêtres, toujours derrière les permissions.".into(),
             core: false,
             tools: vec![
             json!({
@@ -45,9 +45,9 @@ pub(crate) fn toolsets() -> Vec<Toolset> {
             ],
         },
         Toolset {
-            id: "vision",
-            label: "Vision",
-            description: "Regarder une fenêtre autorisée, ou la suivre en direct pendant que tu parles.",
+            id: "vision".into(),
+            label: "Vision".into(),
+            description: "Regarder une fenêtre autorisée, ou la suivre en direct pendant que tu parles.".into(),
             core: false,
             tools: vec![
             json!({
@@ -69,9 +69,9 @@ pub(crate) fn toolsets() -> Vec<Toolset> {
             ],
         },
         Toolset {
-            id: "body",
-            label: "Corps",
-            description: "Se déplacer, s'asseoir, faire des figures, lieux nommés, zones interdites, plan et mode de déplacement.",
+            id: "body".into(),
+            label: "Corps".into(),
+            description: "Se déplacer, s'asseoir, faire des figures, lieux nommés, zones interdites, plan et mode de déplacement.".into(),
             core: false,
             tools: vec![
             json!({
@@ -128,9 +128,9 @@ pub(crate) fn toolsets() -> Vec<Toolset> {
             ],
         },
         Toolset {
-            id: "expression",
-            label: "Expression",
-            description: "Émotions sur son visage et changement d'apparence.",
+            id: "expression".into(),
+            label: "Expression".into(),
+            description: "Émotions sur son visage et changement d'apparence.".into(),
             core: false,
             tools: vec![
             json!({
@@ -152,9 +152,9 @@ pub(crate) fn toolsets() -> Vec<Toolset> {
             ],
         },
         Toolset {
-            id: "conversation",
-            label: "Conversation",
-            description: "Finir une conversation, se taire un moment. Toujours actif.",
+            id: "conversation".into(),
+            label: "Conversation".into(),
+            description: "Finir une conversation, se taire un moment. Toujours actif.".into(),
             core: true,
             tools: vec![
             json!({

@@ -1,0 +1,45 @@
+{
+  "id": "window-sizes",
+  "name": "Taille des fenêtres",
+  "version": "1.0.0",
+  "description": "Réduire, agrandir ou restaurer une fenêtre, trouvée par un morceau de son titre ou le nom de son appli.",
+  "author": "Oz",
+  "tools": [
+    {
+      "name": "minimize_window",
+      "description": "Réduit une fenêtre dans la barre des tâches. La cible est un morceau du titre ou le nom de l'appli (chrome, terminal, whatsapp...).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "target": { "type": "string", "description": "Morceau du titre ou nom de l'appli." }
+        },
+        "required": ["target"]
+      },
+      "script": "window.ps1"
+    },
+    {
+      "name": "maximize_window",
+      "description": "Agrandit une fenêtre en plein écran. La cible est un morceau du titre ou le nom de l'appli.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "target": { "type": "string", "description": "Morceau du titre ou nom de l'appli." }
+        },
+        "required": ["target"]
+      },
+      "script": "window.ps1"
+    },
+    {
+      "name": "restore_window",
+      "description": "Remet une fenêtre réduite ou agrandie à sa taille normale. La cible est un morceau du titre ou le nom de l'appli.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "target": { "type": "string", "description": "Morceau du titre ou nom de l'appli." }
+        },
+        "required": ["target"]
+      },
+      "script": "window.ps1"
+    }
+  ]
+}

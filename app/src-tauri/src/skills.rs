@@ -36,6 +36,9 @@ pub struct Skill {
     /// Pourquoi Oz le propose (les ratés constatés).
     #[serde(default)]
     pub reason: String,
+    /// Fourni par un module installé (lecture seule) : son id.
+    #[serde(default)]
+    pub module: String,
 }
 
 fn skills_dir(app: &AppHandle) -> PathBuf {
@@ -77,6 +80,7 @@ fn parse(id: &str, text: &str, ts: u64) -> Option<Skill> {
         ts,
         proposed: false,
         reason: String::new(),
+        module: String::new(),
     };
     for line in head.lines() {
         let Some((k, v)) = line.split_once(':') else { continue };
@@ -108,7 +112,21 @@ fn render(s: &Skill) -> String {
 }
 
 pub(crate) fn load(app: &AppHandle) -> Vec<Skill> {
-    let Ok(entries) = fs::read_dir(skills_dir(app)) else { return Vec::new() };
+    let mut skills = load_dir(&skills_dir(app));
+    // skills livrés par les modules installés : en lecture seule
+    for (module, dir) in crate::modules::skill_dirs(app) {
+        for mut k in load_dir(&dir) {
+            k.id = format!("{module}/{}", k.id);
+            k.module = module.clone();
+            skills.push(k);
+        }
+    }
+    skills.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    skills
+}
+
+fn load_dir(dir: &std::path::Path) -> Vec<Skill> {
+    let Ok(entries) = fs::read_dir(dir) else { return Vec::new() };
     let mut skills: Vec<Skill> = entries
         .flatten()
         .filter_map(|e| {
@@ -238,6 +256,7 @@ mod tests {
             ts: 0,
             proposed: true,
             reason: "deux fois\nsans outil".into(),
+            module: String::new(),
         };
         let p = parse("x", &render(&s), 0).unwrap();
         assert_eq!(p.name, "Mon skill");
@@ -352,6 +371,7 @@ async fn reflect(app: &AppHandle, skills: &[Skill]) -> Result<Option<String>, St
         ts: 0,
         proposed: true,
         reason: get("reason"),
+        module: String::new(),
     };
     let name = skill.name.clone();
     save_skill(app.clone(), skill)?;
@@ -363,9 +383,9 @@ async fn reflect(app: &AppHandle, skills: &[Skill]) -> Result<Option<String>, St
 
 pub(crate) fn toolsets() -> Vec<crate::toolsets::Toolset> {
     vec![crate::toolsets::Toolset {
-        id: "skills",
-        label: "Skills",
-        description: "Lire les savoir-faire que tu lui as appris (onglet Skills).",
+        id: "skills".into(),
+        label: "Skills".into(),
+        description: "Lire les savoir-faire que tu lui as appris (onglet Skills).".into(),
         core: false,
         tools: vec![serde_json::json!({
             "name": "read_skill",

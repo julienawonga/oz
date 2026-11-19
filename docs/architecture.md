@@ -14,6 +14,7 @@ Le frontend n'a aucune logique de sécurité. Il appelle des commandes Rust (`in
 | `lib.rs` | Déclare les modules, migre les anciennes données, enregistre les commandes, le raccourci global et la boucle d'initiative. |
 | `broker.rs` | Permissions, demandes d'accès, exécution des actions sur les fenêtres. Garde un routeur par mots-clés pour Ollama seulement. Contient les tests. |
 | `toolsets.rs` | Registre des outils, rangés en toolsets (à la façon d'Hermes Agent) : rassemble les toolsets de chaque module, ne déclare à Gemini que les actifs, refuse les outils d'un toolset coupé. |
+| `modules.rs` | Modules installables : préparation (git ou dossier), relecture, installation avec approbation du code des scripts, un toolset par module, skills livrés. Voir [modules.md](modules.md). |
 | `tools.rs` | Toolsets natifs (Fenêtres, Vision, Corps, Expression, Conversation), point d'entrée `run` (garde-fous communs, journal) et exécution des outils natifs. |
 | `brain.rs` | Chat écrit (Gemini en SSE avec outils, Ollama en NDJSON), prompt d'Oz dans la langue choisie, clé API dans le coffre Windows. |
 | `voice.rs` | Sessions Gemini Live (conversation et lecture), micro, consignes `live_prompt`, whisper. |
@@ -110,4 +111,6 @@ Les outils sont rangés en **toolsets**, des groupes qu'on active ou coupe d'un 
 
 Les consignes suivent : sans *Skills*, la liste des skills n'est plus donnée ; sans *Atelier*, Oz n'est plus invité à se fabriquer des outils.
 
-**Ajouter un module.** Dans le module : une fonction `toolsets() -> Vec<Toolset>` (identifiant, nom, description, déclarations au format Gemini) et une fonction `run(app, name, args) -> Option<String>` qui renvoie `None` pour un outil qui n'est pas le sien. Puis l'ajouter à `providers()` et à `dispatch()` dans `toolsets.rs`. Un test vérifie qu'aucun outil n'est déclaré deux fois. Tout ce qui touche une fenêtre passe par le broker.
+Chaque module installé (voir [modules.md](modules.md)) ajoute un toolset `mod:<id>`, sans toucher au code.
+
+**Ajouter un toolset au code d'Oz.** Dans le module Rust : une fonction `toolsets() -> Vec<Toolset>` (identifiant, nom, description, déclarations au format Gemini) et une fonction `run(app, name, args) -> Option<String>` qui renvoie `None` pour un outil qui n'est pas le sien. Puis l'ajouter à `builtin()` et à `dispatch()` dans `toolsets.rs`. Un test vérifie qu'aucun outil n'est déclaré deux fois. Tout ce qui touche une fenêtre passe par le broker.

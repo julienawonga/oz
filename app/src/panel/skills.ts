@@ -14,6 +14,8 @@ interface Skill {
   ts: number;
   proposed?: boolean;
   reason?: string;
+  /** Fourni par un module installé : lecture seule. */
+  module?: string;
 }
 
 interface CustomTool {
@@ -45,7 +47,11 @@ export async function renderSkills(): Promise<void> {
   html += skills.length
     ? skills
         .map(
-          (s, i) => s.proposed
+          (s, i) => s.module
+            ? `<div class="list-row"><div class="main">
+            <div class="title" style="white-space:normal">${esc(s.name)} <span class="badge">module ${esc(s.module)}</span></div>
+            <div class="meta" style="white-space:normal">${esc(s.description)}</div></div></div>`
+            : s.proposed
             ? `<div class="list-row"><div class="main">
             <div class="title" style="white-space:normal">${esc(s.name)} <span class="badge">Proposé par Oz</span></div>
             <div class="meta" style="white-space:normal">${esc(s.description)}</div>
