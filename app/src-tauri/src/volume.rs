@@ -167,6 +167,21 @@ fn for_each_session(
     .map_err(|e: windows::core::Error| format!("sessions audio inaccessibles ({e})"))
 }
 
+/// Volumes d'origine aussi sur le disque : si Oz est arrêté de force en
+/// pleine conversation (plantage, arrêt du dev), les applis restaient
+/// muettes. Au démarrage suivant, il les remet.
+static DUCK_FILE: Mutex<Option<std::path::PathBuf>> = Mutex::new(None);
+
+fn persist(saved: &[(u32, f32)]) {
+    if let Some(path) = DUCK_FILE.lock().unwrap().clone() {
+        if saved.is_empty() {
+            let _ = std::fs::remove_file(path);
+        } else {
+            let _ = std::fs::write(path, serde_json::to_string(saved).unwrap_or_default());
+        }
+    }
+}
+
 fn duck() -> Result<usize, String> {
     if !DUCKED.lock().unwrap().is_empty() {
         return Ok(0); // déjà baissé
@@ -187,6 +202,7 @@ fn duck() -> Result<usize, String> {
     })?;
     let saved = std::mem::take(&mut *saved.lock().unwrap());
     let n = saved.len();
+    persist(&saved);
     *DUCKED.lock().unwrap() = saved;
     Ok(n)
 }
@@ -199,10 +215,15 @@ fn restore() -> Result<usize, String> {
     let n = saved.len();
     for_each_session(move |pid, vol| unsafe {
         if let Some((_, level)) = saved.iter().find(|(p, _)| *p == pid) {
-            vol.SetMasterVolume(*level, std::ptr::null())?;
+            // seulement si l'appli est encore au niveau où Oz l'a mise :
+            // si Julien l'a remontée entre-temps, on n'y touche pas
+            if vol.GetMasterVolume()? <= level * DUCK_RATIO + 0.01 {
+                vol.SetMasterVolume(*level, std::ptr::null())?;
+            }
         }
         Ok(())
     })?;
+    persist(&[]);
     Ok(n)
 }
 
@@ -216,7 +237,25 @@ pub(crate) fn duck_others(app: AppHandle, on: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// À la fermeture d'Oz : ne jamais laisser les autres applis à 20 %.
+/// Au démarrage : remet le son laissé coupé par un arrêt forcé.
+pub(crate) fn recover_at_startup(app: &AppHandle) {
+    let path = tauri::Manager::path(app).app_data_dir().expect("app_data_dir").join("ducked.json");
+    let left: Vec<(u32, f32)> = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    *DUCK_FILE.lock().unwrap() = Some(path);
+    if left.is_empty() {
+        return;
+    }
+    *DUCKED.lock().unwrap() = left;
+    match restore() {
+        Ok(n) => log_event(app, "volume", &format!("son remis après un arrêt en pleine conversation ({n} appli(s))")),
+        Err(e) => log_event(app, "volume", &format!("son à remettre à la main : {e}")),
+    }
+}
+
+/// À la fermeture d'Oz : ne jamais laisser les autres applis coupées.
 pub(crate) fn restore_on_exit() {
     let _ = restore();
 }

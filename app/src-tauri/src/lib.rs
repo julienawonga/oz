@@ -95,6 +95,7 @@ pub fn run() {
             if behind {
                 let _ = tools::apply_layer(app.handle(), true);
             }
+            volume::recover_at_startup(app.handle());
             initiative::spawn(app.handle().clone());
             Ok(())
         })
