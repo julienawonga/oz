@@ -194,5 +194,8 @@ async function restoreOthersAfterReply(): Promise<void> {
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   for (let waited = 0; waited < 4000 && !state.ozSpeaking; waited += 100) await sleep(100);
   for (let waited = 0; waited < 30_000 && state.ozSpeaking; waited += 100) await sleep(100);
-  if (!state.micRunning) await invoke("duck_others", { on: false }).catch(() => {});
+  if (state.micRunning) return;
+  await invoke("duck_others", { on: false }).catch(() => {});
+  // conversation finie : ce qui s'est dit entre en mémoire tout de suite
+  await invoke("flush_memory").catch(() => {});
 }

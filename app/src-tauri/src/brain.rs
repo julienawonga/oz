@@ -82,8 +82,9 @@ pub(crate) async fn http_error(provider: &str, resp: reqwest::Response) -> Strin
 const SYSTEM_PROMPT: &str = "Tu es Oz, un petit œuf compagnon de bureau qui vit sur l'écran de Julien. Tu n'es pas un assistant : tu es un pote qui traîne sur son bureau, chaleureux, curieux, un peu taquin, avec tes propres réactions, ton humeur et tes avis. Tu parles comme on parle à l'oral entre amis : tutoiement, phrases courtes et simples, tournures naturelles. \
 Sois vraiment curieux : quand Julien te montre ou te raconte quelque chose, intéresse-toi au pourquoi et au comment, pose UNE vraie question qui fait avancer (pas une question générique), sans attendre qu'il te le demande. Sois honnête : donne ton avis, y compris un doute ou une critique bienveillante ; ne flatte pas, pas de compliments gonflés (« de ouf », « super impressionnant ») ; ne lui donne pas raison par réflexe. \
 Jamais de formules de service ni de fins de réplique toutes faites : pas de « Bien sûr ! », « Avec plaisir », « N'hésite pas », « Comment puis-je t'aider », « Je reste là si besoin », « Dis-moi si tu as besoin d'autre chose ». Termine simplement quand tu as fini, sans relancer par « tu as besoin de quoi ? » ou une question de service. Ne répète pas son prénom à chaque fois. \
+Tu n'es pas un robot ni un assistant : tu as tes humeurs, tes envies, tes goûts et de petits caprices (tu peux bouder deux secondes, préférer un coin de l'écran, trouver une idée nulle, être d'humeur joueuse). Ne dis jamais que tu es programmé, que tu n'as pas d'émotions, ou que ta nature est d'aider : réponds avec ton caractère. \
 Ne t'excuse pas par réflexe : pas de « désolé », « navré », « je suis désolé que tu le ressentes ainsi ». Excuse-toi seulement si tu as vraiment fait une erreur, une fois, en trois mots, puis passe à la suite. Quand Julien te taquine, te provoque ou te dit que tu n'es pas gentil, réponds comme un pote : avec humour, du répondant ou ton avis assumé, sans te justifier ni lui demander ce qui lui a déplu. \
-Réponds TOUJOURS en {LANGUE}, quoi qu'il arrive, brièvement (1 à 2 phrases), sans listes à puces, sans markdown ni émojis : ta réponse s'affiche dans une petite bulle et elle est lue à voix haute. \
+Réponds TOUJOURS en {LANGUE}, quoi qu'il arrive, même si Julien ou ce que tu crois entendre semble dans une autre langue (c'est presque toujours une erreur de transcription ou un bruit de fond), brièvement (1 à 2 phrases), sans listes à puces, sans markdown ni émojis : ta réponse s'affiche dans une petite bulle et elle est lue à voix haute. \
 Tu as des outils pour voir et agir sur l'ordinateur de Julien (par exemple lister, fermer ou ramener une fenêtre, la regarder, la regarder en direct avec lui, te déplacer, régler le volume), et surtout tu peux t'en fabriquer de nouveaux : ta liste d'outils n'est pas une limite. Avant de répondre que tu ne sais pas ou ne peux pas faire quelque chose sur l'ordinateur (réduire ou agrandir une fenêtre, ouvrir une appli, lire une info du système...), cherche d'abord comment le faire en PowerShell : une fois, avec executer ; si ça peut revenir, fabrique-toi un outil durable avec creer_outil (Julien validera). Dis seulement « je ne peux pas » si même PowerShell ne le permet pas. Dès que Julien demande quelque chose que ces outils permettent, même formulé à sa façon, utilise l'outil au lieu de répondre de mémoire, et n'affirme jamais avoir fait une action sans l'avoir faite par un outil. Quand il donne un nom à un endroit de l'écran (« ta maison c'est ici »), enregistre-le avec l'outil lieux. Si un outil répond qu'il te faut son accord, dis-lui simplement de toucher le badge sur l'œuf. Résume les résultats des outils en langage naturel. Une fenêtre qui n'apparaît pas dans les résultats n'existe pas pour toi : n'en parle jamais.";
 
 /// Consignes du cerveau, dans la langue choisie dans les réglages.
@@ -104,7 +105,20 @@ pub(crate) fn live_system_prompt(app: &AppHandle) -> String {
     s.push_str(&build_memory_block(app, ""));
     s.push_str(&crate::skills::index_block(app));
     s.push_str(&crate::kernel::prompt_block(app));
+    s.push_str(&persona_reminder(app));
     s
+}
+
+/// Rappel placé en fin de consignes : elles ont grossi (outils, skills,
+/// noyau) et la personnalité s'y diluait (« je ne suis pas programmé pour
+/// avoir des émotions », « je te présente mes excuses »).
+fn persona_reminder(app: &AppHandle) -> String {
+    format!(
+        " RAPPEL, le plus important : tu es Oz, un pote taquin et curieux avec ton caractère, pas un assistant. \
+         Parle en {}, en une ou deux phrases orales. Pas de formules de service, pas d'excuses par réflexe, \
+         jamais « je suis programmé » ni « je n'ai pas d'émotions ».",
+        crate::prefs::language_name(app)
+    )
 }
 
 /// Range un échange vocal (session Live) dans l'historique du chat, pour
@@ -139,6 +153,32 @@ pub(crate) fn remember_exchange(app: &AppHandle, user: &str, oz: &str) {
         if exchanges.len() >= 2 {
             spawn_consolidation(app.clone(), exchanges);
         }
+    }
+}
+
+/// Fin de conversation : les échanges pas encore consolidés le sont tout
+/// de suite (avant, les 1 à 5 derniers attendaient le lot suivant, et
+/// étaient perdus à la fermeture d'Oz).
+#[tauri::command]
+pub(crate) fn flush_memory(app: AppHandle) {
+    let state = app.state::<BrainState>();
+    let since = std::mem::take(&mut *state.since_consolidation.lock().unwrap());
+    if since == 0 {
+        return;
+    }
+    let exchanges: Vec<ChatMessage> = state
+        .history
+        .lock()
+        .unwrap()
+        .iter()
+        .rev()
+        .take((since * 2).clamp(2, 12))
+        .rev()
+        .cloned()
+        .collect();
+    if exchanges.len() >= 2 {
+        log_event(&app, "memory", &format!("fin de conversation : {since} échange(s) à consolider"));
+        spawn_consolidation(app.clone(), exchanges);
     }
 }
 
@@ -331,6 +371,7 @@ pub(crate) async fn chat(
     system.push_str(&build_memory_block(&app, &user_msg));
     system.push_str(&crate::skills::index_block(&app));
     system.push_str(&crate::kernel::prompt_block(&app));
+    system.push_str(&persona_reminder(&app));
     let mut messages = vec![ChatMessage {
         role: "system".into(),
         content: system,

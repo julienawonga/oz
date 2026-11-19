@@ -104,6 +104,7 @@ pub fn run() {
             broker::set_permission,
             cursor::cursor_in_window,
             brain::chat,
+            brain::flush_memory,
             brain::get_brain_config,
             brain::set_brain_config,
             voice::transcribe,

@@ -402,7 +402,11 @@ pub(crate) fn prompt_block(app: &AppHandle) -> String {
     let mut s = String::from(
         " Tu as aussi un atelier (un dossier à toi) et des outils de base : lire_fichier, ecrire_fichier, modifier_fichier, \
          executer (PowerShell). Quand aucun de tes outils ne couvre une demande, ne dis pas que tu ne peux pas : \
-         fabrique-toi un outil avec creer_outil (code PowerShell + un test), puis utilise-le. Pour agir sur une fenêtre \
+         fabrique-toi un outil avec creer_outil (code PowerShell + un test), puis utilise-le. Un outil est GÉNÉRIQUE : \
+         ce qui change (l'appli, la fenêtre, la ville...) est un paramètre ; jamais un outil par appli (reduire_fenetre \
+         avec le paramètre appli, pas reduire_chrome et reduire_terminal). Avant d'en créer un, regarde tes outils : \
+         si l'un d'eux fait presque la même chose ou est cassé, refais-le sous le même nom plutôt que d'en ajouter un. \
+         Ne lance pas une commande executer au hasard avant : chaque essai demande l'accord de Julien. Pour agir sur une fenêtre \
          (réduire, agrandir, déplacer...), appelle l'API Windows depuis PowerShell avec Add-Type (user32.dll : ShowWindow...) ; \
          trouve la fenêtre par un MORCEAU de son titre ou par le nom de son appli (Get-Process | Where-Object \
          { $_.MainWindowTitle -like \"*mot*\" -or $_.ProcessName -like \"*mot*\" }, puis MainWindowHandle), jamais par son \
