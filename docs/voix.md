@@ -29,7 +29,13 @@ Le serveur ferme la session après environ 2 minutes sans parole. Elle se rouvre
 
 Si Oz parle, un clic ou le raccourci lui coupe la parole. Échap coupe sa voix et annule une prise de parole en cours, sans fermer le micro.
 
-Le silence est détecté localement au volume (`VOICE_RMS`, 0,015, dans `mic.ts`) : un bruit de fond fort peut garder le micro ouvert. Pendant qu'Oz parle, le micro est muet (anti-écho, marge de 350 ms).
+Le silence est détecté localement au volume (`VOICE_RMS`, 0,015, dans `mic.ts`) : un bruit de fond fort peut garder le micro ouvert.
+
+Pendant qu'Oz parle, son écho n'est pas envoyé. La garde dure jusqu'à la fin réelle de sa voix : l'audio planifié, plus la latence de sortie de la carte son (jusqu'à environ 300 ms en Bluetooth), plus 300 ms pour l'écho de la pièce.
+
+**Lui couper la parole.** Un analyseur mesure ce qu'Oz joue. Le micro apprend en continu le rapport entre son écho et sa voix. Quand le micro dépasse nettement l'écho attendu (trois fois) pendant environ 250 ms, c'est Julien qui parle : Oz se tait, et les derniers morceaux de micro gardés en réserve partent, pour que le début de la phrase ne soit pas perdu. Réglage *Lui couper la parole* pour le désactiver si des enceintes très fortes le font s'interrompre seul.
+
+**Baisse automatique.** Dès que le micro s'ouvre, les autres applis qui jouent du son (une vidéo, de la musique) descendent à 20 % de leur volume, chacune à part ; la voix d'Oz n'est pas touchée. Elles remontent après sa dernière phrase, et à la fermeture d'Oz. Sans ça, une vidéo couvrait la voix de Julien et Gemini répondait à la vidéo.
 
 Pendant l'écoute, l'œuf a un halo rouge et les yeux grands ouverts.
 

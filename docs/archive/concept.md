@@ -87,4 +87,4 @@ Action stack: Win32 API via `windows-rs` (EnumWindows, SetForegroundWindow, WM_C
 
 ## State-of-the-art references
 
-See `docs/state-of-the-art.md` (AIRI 51k⭐, Open-LLM-VTuber 14.7k⭐, B 5.2k⭐, BongoCat 24.6k⭐, three-vrm, piper, kokoro...).
+See `state-of-the-art.md` (AIRI 51k⭐, Open-LLM-VTuber 14.7k⭐, B 5.2k⭐, BongoCat 24.6k⭐, three-vrm, piper, kokoro...).

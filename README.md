@@ -51,7 +51,11 @@ It understands what you say **with a real language model, no keywords**: "what's
 | 🐣 **A living egg** | Animations, poses, strolls, tricks (zigzag, circles, spins, flips, dance), named places ("go home"), reaches every screen edge, no-go zones. |
 | 🗂️ **Memory** | Lasting facts drawn from spoken and written conversations, notes on observed windows, deletable one by one. |
 | 🕒 **Context** | Local time injected into every message. |
-| 🎛️ **Admin panel** | Sidebar app in the egg's colors, light and dark: chat, settings (language, mic hotkey, transcript, initiative), memory, permissions with the live list of open windows, zones, activity log, models. |
+| 🛠️ **Grows its own toolbox** | A Pi-style kernel (read, write, edit files in its own workshop folder; run PowerShell) and tools Oz writes itself, each with a test that runs only after you approve it. |
+| 📚 **Skills** | Written know-how you add from the panel; Oz loads one when the situation matches, and drafts new ones from its repeated misses for you to accept. |
+| 🔊 **Sound** | System volume by voice; other apps are ducked while Oz listens; interrupt Oz just by talking over it. |
+| 🎨 **Your egg** | Movement modes (free, fixed, docked to an edge, focus), in front of or behind windows, any color and a texture. |
+| 🎛️ **Admin panel** | Sidebar app in the egg's colors, light and dark: chat, settings (language, mic hotkey, transcript, initiative, interruption, movement, appearance), memory, skills and Oz-made tools, permissions with the live list of open windows, zones, activity log, models. |
 
 ### Tools available to the brain
 
@@ -66,7 +70,14 @@ It understands what you say **with a real language model, no keywords**: "what's
 | `faire_une_figure` | Zigzag, circle, figure eight, wave, spiral, spin, flip, turn around, jump, dance; optionally on the way somewhere | — |
 | `lieux` | Names the current spot ("home") and goes back to it | — |
 | `zone_interdite` | Forbids or allows the spot where Oz stands | — |
-| `finir_conversation` · `pas_maintenant` | Ends the conversation (mic off); mutes Oz's own initiatives for a while | — |
+| `finir_conversation` · `pas_maintenant` | Ends the conversation (mic off, live view stopped); mutes Oz's own initiatives for a while | — |
+| `volume` | Volume up, down, set, level, mute after its reply, unmute | — |
+| `changer_plan` · `mode_deplacement` | In front of or behind windows; free, fixed, edge or focus mode | — |
+| `personnaliser_oeuf` | Egg color and texture | — |
+| `lire_skill` | Loads the instructions of a skill | — |
+| `lire_fichier` · `ecrire_fichier` · `modifier_fichier` | Files in Oz's workshop; reading elsewhere asks first | outside the workshop: approval |
+| `executer` | PowerShell command | approval, except a short list of read-only cmdlets |
+| `creer_outil` · `utiliser_outil` | Writes a PowerShell tool with a test; runs an adopted tool | approval for the test and after any change |
 
 Tool names are in French. Oz's language (French by default) is chosen in the *Settings* tab.
 
@@ -129,7 +140,7 @@ docs/               architecture, permissions, voice, development
 ## 🧪 Tests
 
 ```bash
-cd app/src-tauri && cargo test     # broker, router, name cleanup
+cd app/src-tauri && cargo test     # broker, router, skills, kernel allowlist
 cd .. && npx tsc --noEmit          # front-end type check
 ```
 
@@ -141,13 +152,18 @@ cd .. && npx tsc --noEmit          # front-end type check
 - [x] Global mic hotkey, language setting, tricks and named places
 - [x] "Watch with me": live view of an allowed window in the voice session
 - [x] Admin panel redesign
-- [ ] Oz reacts on its own to what it sees
-- [ ] Interrupt Oz by voice
 - [x] Per-window permissions, sanctuaries, activity log
-- [ ] Movement modes: free roam, fixed position, behind windows, docked to an edge, focus
+- [x] Interrupt Oz by voice; ducking of other apps while it listens
+- [x] Movement modes: free roam, fixed, docked to an edge, focus; in front of or behind windows
+- [x] Egg customization (colors, textures)
+- [x] Skills, Pi-style kernel and tools Oz builds itself
+- [ ] Process memory at the end of each conversation
+- [ ] Oz reacts on its own to what it sees
 - [ ] Tools for local models (Ollama)
-- [ ] Egg customization (colors, textures)
+- [ ] Recognize Julien's voice (local voice print)
 - [ ] Wake word
+
+Details (in French): [docs/roadmap.md](docs/roadmap.md).
 
 ## 📚 Documentation
 
@@ -157,6 +173,7 @@ The detailed docs are in French.
 - [Permissions](docs/permissions.md): levels, rules, broker behavior.
 - [Voice](docs/voix.md): mic pipeline, transcription, playback.
 - [Development](docs/developpement.md): conventions, tests, local data, troubleshooting.
+- [Roadmap](docs/roadmap.md): done, next, later. Old design notes are in [docs/archive](docs/archive/).
 
 <details>
 <summary>Former name: Nid</summary>
