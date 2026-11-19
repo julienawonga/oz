@@ -83,6 +83,7 @@ window.addEventListener("pointerup", (e) => {
 
 // ── Click-through : la zone active épouse l'œuf ──
 let cursorOverRobot = true;
+const HIT_MARGIN = 24; // px logiques autour de l'œuf, de la bulle et de la carte
 
 async function hitTestLoop(): Promise<void> {
   if (state.dragging) return;
@@ -91,12 +92,16 @@ async function hitTestLoop(): Promise<void> {
     // un seul appel au Rust : curseur déjà ramené à la fenêtre, en pixels logiques
     const { x: lx, y: ly } = await invoke<{ x: number; y: number }>("cursor_in_window");
 
-    // Zone active : l'œuf + la bulle + la carte d'accès
+    // Zone active : l'œuf + la bulle + la carte d'accès, avec une marge.
+    // Sans elle, un clic donné juste en arrivant sur l'œuf partait avant que
+    // la fenêtre cesse de laisser passer les clics : il tombait sur la
+    // fenêtre du dessous (souvent le panneau, centré sous l'œuf), qui
+    // passait alors au premier plan.
     const overUi = [robot, bubble, accessCard].some((el) => {
       // un élément masqué ne doit pas bloquer les clics derrière lui
       if (el.classList.contains("hidden")) return false;
       const r = el.getBoundingClientRect();
-      return lx >= r.left && lx <= r.right && ly >= r.top && ly <= r.bottom;
+      return lx >= r.left - HIT_MARGIN && lx <= r.right + HIT_MARGIN && ly >= r.top - HIT_MARGIN && ly <= r.bottom + HIT_MARGIN;
     });
     if (overUi !== cursorOverRobot) {
       cursorOverRobot = overUi;
@@ -109,7 +114,7 @@ async function hitTestLoop(): Promise<void> {
     /* on réessaie au prochain tick */
   }
 }
-setInterval(hitTestLoop, 80);
+setInterval(hitTestLoop, 40);
 
 // Pupilles qui suivent le curseur
 function updatePupils(lx: number, ly: number): void {

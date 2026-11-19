@@ -103,8 +103,9 @@ use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
 };
 
-/// Part du volume d'origine gardée pendant la conversation.
-const DUCK_RATIO: f32 = 0.2;
+/// Part du volume d'origine gardée pendant la conversation (à 20 %, une
+/// vidéo couvrait encore la voix de Julien).
+const DUCK_RATIO: f32 = 0.06;
 /// Volumes d'origine des sessions baissées : (pid, volume).
 static DUCKED: Mutex<Vec<(u32, f32)>> = Mutex::new(Vec::new());
 
