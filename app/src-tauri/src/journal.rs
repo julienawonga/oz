@@ -28,6 +28,7 @@ pub(crate) fn now_ts() -> u64 {
 }
 
 pub(crate) fn log_event(app: &AppHandle, kind: &str, detail: &str) {
+    let detail = &crate::prefs::personalize(app, detail);
     // visible aussi dans le terminal de `npm run tauri dev`
     eprintln!("[oz] {} {kind} : {detail}", clock_ms());
     let line = serde_json::json!({

@@ -7,6 +7,7 @@ interface Prefs {
   show_transcript: boolean;
   initiative: boolean;
   language: string;
+  owner_name: string;
   mic_shortcut: string;
   move_mode: string;
   behind: boolean;
@@ -60,6 +61,8 @@ export async function renderSettings(): Promise<void> {
   content.innerHTML =
     pageHead("Réglages", "Comment Oz parle, écoute et se comporte. Chaque changement est appliqué tout de suite.") +
     `<section class="panel"><div class="panel-head"><h3>Voix</h3></div>` +
+    row("Ton prénom", "Comment Oz t'appelle. Vide : il te le demande à la prochaine conversation.",
+      `<input id="s-owner" type="text" value="${esc(prefs.owner_name)}" maxlength="40" placeholder="Ton prénom" autocomplete="off" aria-label="Ton prénom">`) +
     row("Langue", "Celle qu'il parle, écrit et comprend. La conversation en cours repart de zéro.",
       `<select id="s-language" aria-label="Langue">${LANGUAGES.map(([code, name]) =>
         `<option value="${code}"${code === prefs.language ? " selected" : ""}>${name}</option>`).join("")}</select>`) +
@@ -116,6 +119,8 @@ export async function renderSettings(): Promise<void> {
     void save({ show_transcript: (e.target as HTMLInputElement).checked }, "Réglage enregistré"));
   el<HTMLInputElement>("s-initiative").addEventListener("change", (e) =>
     void save({ initiative: (e.target as HTMLInputElement).checked }, "Réglage enregistré"));
+  el<HTMLInputElement>("s-owner").addEventListener("change", (e) =>
+    void save({ owner_name: (e.target as HTMLInputElement).value.trim() }, "Prénom enregistré"));
   el<HTMLSelectElement>("s-language").addEventListener("change", (e) =>
     void save({ language: (e.target as HTMLSelectElement).value }, "Langue enregistrée"));
   el<HTMLInputElement>("s-barge").addEventListener("change", (e) =>

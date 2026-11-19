@@ -7,7 +7,7 @@ import { applyPose, eggBounds, glideTo } from "./motion";
 import { state } from "./state";
 
 // ── Actions du corps d'Oz, déclenchées par le cerveau ────────────────
-// Plus aucun mot-clé ici : Gemini comprend la demande de Julien et appelle
+// Plus aucun mot-clé ici : Gemini comprend la demande de l'utilisateur et appelle
 // un outil (src-tauri/src/tools.rs). Les outils qui concernent le corps de
 // l'œuf (se déplacer, changer de pose) arrivent par l'événement `oz://do`.
 // La réponse parlée vient du cerveau : ces actions restent silencieuses.
@@ -67,7 +67,7 @@ async function directionTarget(direction: string): Promise<Target> {
   return { x: tx, y: ty };
 }
 
-/** Julien clôt la conversation : Oz finit sa phrase, puis n'écoute plus. */
+/** L'utilisateur clôt la conversation : Oz finit sa phrase, puis n'écoute plus. */
 async function endConversation(): Promise<void> {
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   state.holdMic = false;

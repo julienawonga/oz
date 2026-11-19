@@ -433,7 +433,7 @@ async fn read_live(app: AppHandle, ch: Live, mut rx: futures_util::stream::Split
                     voice_emit(&app, "user-text", tr);
                 }
                 if v["voiceActivity"]["type"].as_str() == Some("ACTIVITY_END") {
-                    log_event(&app, "voice", "live conversation : fin de phrase de Julien");
+                    log_event(&app, "voice", "live conversation : fin de phrase de %OWNER%");
                 }
                 if let Some(tr) = sc["outputTranscription"]["text"].as_str() {
                     said.push_str(tr);
@@ -454,7 +454,7 @@ async fn read_live(app: AppHandle, ch: Live, mut rx: futures_util::stream::Split
                     voice_emit(&app, "interrupted", "");
                 }
                 // Tour clos sans parole : juste après un appel d'outil, la réponse
-                // arrive dans le tour suivant (on garde ce que Julien a dit) ;
+                // arrive dans le tour suivant (on garde ce que l'utilisateur a dit) ;
                 // sinon c'était du bruit ou un outil sans réponse : on oublie,
                 // pour ne pas coller ces mots à l'échange suivant.
                 if turn_complete && said.trim().is_empty() {
@@ -470,7 +470,7 @@ async fn read_live(app: AppHandle, ch: Live, mut rx: futures_util::stream::Split
                     log_event(&app, "voice", &format!("live conversation : tour terminé ({audio_chunks} chunk(s) audio)"));
                     let (user, oz) = (heard.trim().to_string(), said.trim().to_string());
                     // le texte de l'échange, relisible dans le journal
-                    log_event(&app, "conversation", &format!("Julien : « {user} » — Oz : « {oz} »"));
+                    log_event(&app, "conversation", &format!("%OWNER% : « {user} » — Oz : « {oz} »"));
                     crate::brain::remember_exchange(&app, &user, &oz);
                     let _ = app.emit("oz://voice-talk-turn", serde_json::json!({"user": user, "oz": oz}));
                     heard.clear();
@@ -567,7 +567,7 @@ pub(crate) async fn mic_chunk(app: AppHandle, data: String) -> Result<(), String
 /// des images que pendant une conversation.
 static LAST_MIC_CHUNK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// Julien parle à Oz en ce moment (micro actif dans les `secs` dernières
+/// L'utilisateur parle à Oz en ce moment (micro actif dans les `secs` dernières
 /// secondes ; il est muet pendant qu'Oz parle, d'où une marge).
 pub(crate) fn conversing_within(secs: u64) -> bool {
     crate::journal::now_ts().saturating_sub(LAST_MIC_CHUNK.load(std::sync::atomic::Ordering::Relaxed)) <= secs
@@ -597,9 +597,10 @@ pub(crate) async fn reset_talk_session(app: &AppHandle) {
 }
 
 /// Consigne texte glissée dans la conversation vocale (initiative d'Oz) :
-/// le modèle y répond à voix haute, comme à une phrase de Julien.
+/// le modèle y répond à voix haute, comme à une phrase de l'utilisateur.
 #[tauri::command]
 pub(crate) async fn live_prompt(app: AppHandle, text: String) -> Result<(), String> {
+    let text = crate::prefs::personalize(&app, &text);
     let key = gemini_key_from_state(&app).await;
     if key.is_empty() {
         return Err("Aucune clé Gemini : ajoute-la dans le panneau, onglet Modèles".into());

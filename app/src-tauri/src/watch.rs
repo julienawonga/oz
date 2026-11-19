@@ -1,7 +1,7 @@
 //! « Regarde avec moi » : Oz voit en direct UNE fenêtre autorisée.
 //!
 //! Une image par seconde part dans la conversation vocale (Gemini Live,
-//! `realtimeInput.video`), seulement pendant que Julien lui parle : Oz
+//! `realtimeInput.video`), seulement pendant que l'utilisateur lui parle : Oz
 //! répond sur ce qu'il voit en moins d'une seconde, sans capture à la
 //! demande. Le broker est consulté à CHAQUE image : un accès retiré ou un
 //! sanctuaire arrête la vue sur-le-champ. Un témoin reste visible sur l'œuf.
@@ -31,7 +31,7 @@ static WATCHING: Mutex<Option<String>> = Mutex::new(None);
 static WATCH_ID: AtomicU64 = AtomicU64::new(0);
 
 /// « Arrête de regarder » : plus aucune capture pendant ce temps, sauf si
-/// Julien l'autorise d'un geste (badge sur l'œuf). Oz avait capturé Chrome
+/// L'utilisateur l'autorise d'un geste (badge sur l'œuf). Oz avait capturé Chrome
 /// de lui-même quatre secondes après qu'on lui a demandé d'arrêter.
 const LOOK_PAUSE_SECS: u64 = 5 * 60;
 static LOOK_PAUSED_UNTIL: AtomicU64 = AtomicU64::new(0);
@@ -40,7 +40,7 @@ pub(crate) fn look_paused() -> bool {
     now_ts() < LOOK_PAUSED_UNTIL.load(Ordering::SeqCst)
 }
 
-/// Julien a autorisé un regard, ou la conversation est finie.
+/// L'utilisateur a autorisé un regard, ou la conversation est finie.
 pub(crate) fn clear_look_pause() {
     LOOK_PAUSED_UNTIL.store(0, Ordering::SeqCst);
 }
@@ -55,8 +55,8 @@ pub(crate) fn tool(app: &AppHandle, action: &str, target: &str) -> String {
     match action {
         "arreter" => {
             LOOK_PAUSED_UNTIL.store(now_ts() + LOOK_PAUSE_SECS, Ordering::SeqCst);
-            let out = stop(app, "à la demande de Julien");
-            format!("{out} Ne regarde plus aucune fenêtre tant que Julien ne te le redemande pas.")
+            let out = stop(app, "à la demande de %OWNER%");
+            format!("{out} Ne regarde plus aucune fenêtre tant que %OWNER% ne te le redemande pas.")
         }
         _ => start(app, target),
     }
@@ -74,7 +74,7 @@ fn start(app: &AppHandle, target: &str) -> String {
     log_event(app, "watch", &format!("regarde en direct « {} »", w.title));
     tauri::async_runtime::spawn(watch_loop(app.clone(), w, id));
     format!(
-        "Tu vois maintenant {label} en direct (une image par seconde pendant que Julien te parle). \
+        "Tu vois maintenant {label} en direct (une image par seconde pendant que %OWNER% te parle). \
          Réponds sur ce que tu vois sans utiliser look_at_window pour cette fenêtre."
     )
 }

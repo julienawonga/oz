@@ -2,7 +2,7 @@
 //!
 //! Chaque module d'Oz fournit ses toolsets (un groupe d'outils : leurs
 //! déclarations pour Gemini) et sait exécuter ses outils. Le registre
-//! les rassemble ; Julien active ou désactive chaque toolset dans le
+//! les rassemble ; l'utilisateur active ou désactive chaque toolset dans le
 //! panneau (onglet Outils). Gemini ne reçoit que les outils actifs : des
 //! consignes plus courtes, et rien d'appelable qui ait été coupé.
 //!
@@ -66,7 +66,8 @@ pub(crate) fn declarations(app: &AppHandle) -> Value {
         .filter(|t| is_enabled(app, t))
         .flat_map(|t| t.tools)
         .collect();
-    json!([{ "functionDeclarations": decls }])
+    let text = json!([{ "functionDeclarations": decls }]).to_string();
+    serde_json::from_str(&crate::prefs::personalize(app, &text)).unwrap_or_else(|_| json!([]))
 }
 
 /// Exécute un outil : refusé s'il appartient à un toolset coupé.
@@ -76,7 +77,7 @@ pub(crate) async fn dispatch(app: &AppHandle, name: &str, args: &Value) -> Strin
         None => return format!("Outil inconnu : {name}"),
         Some(t) if !is_enabled(app, &t) => {
             log_event(app, "tool", &format!("{name} refusé : toolset « {} » désactivé", t.id));
-            return format!("Cet outil est désactivé par Julien (groupe « {} »). Dis-le-lui simplement.", t.label);
+            return format!("Cet outil est désactivé par %OWNER% (groupe « {} »). Dis-le-lui simplement.", t.label);
         }
         Some(_) => {}
     }

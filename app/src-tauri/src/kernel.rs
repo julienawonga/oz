@@ -5,9 +5,9 @@
 //! On parle à Oz et la transcription se trompe parfois : rien de risqué ne
 //! part sur une simple phrase. Le code, pas le modèle, décide :
 //! - écrire et modifier : seulement dans son atelier ;
-//! - lire hors de l'atelier : accord de Julien ;
+//! - lire hors de l'atelier : accord de l'utilisateur ;
 //! - exécuter : une courte liste de commandes de lecture passe seule,
-//!   tout le reste est montré à Julien (badge sur l'œuf) et attend son
+//!   tout le reste est montré à l'utilisateur (badge sur l'œuf) et attend son
 //!   accord ; le résultat revient ensuite dans la conversation ;
 //! - un outil créé par Oz : son test tourne après accord ; s'il passe,
 //!   l'outil est adopté et ce script exact ne redemande plus d'accord.
@@ -84,12 +84,12 @@ fn ask(app: &AppHandle, pending: Pending, title: &str, detail: &str) -> String {
     PENDING.lock().unwrap().push((id, pending));
     let _ = app.emit("oz://exec-request", json!({"id": id, "title": title, "detail": truncate(detail, 1500)}));
     log_event(app, "kernel", &format!("accord demandé : {title}"));
-    "Il me faut l'accord de Julien : dis-lui de toucher le badge sur l'œuf pour voir et valider. \
+    "Il me faut l'accord de %OWNER% : dis-lui de toucher le badge sur l'œuf pour voir et valider. \
      Le résultat te reviendra tout seul ensuite ; ne relance pas l'outil."
         .into()
 }
 
-/// Décision de Julien sur une demande (carte de l'œuf).
+/// Décision de l'utilisateur sur une demande (carte de l'œuf).
 #[tauri::command]
 pub(crate) async fn exec_decision(app: AppHandle, id: u64, allow: bool) -> Result<(), String> {
     let pending = {
@@ -99,7 +99,7 @@ pub(crate) async fn exec_decision(app: AppHandle, id: u64, allow: bool) -> Resul
     };
     let note = if !allow {
         log_event(&app, "kernel", "accord refusé");
-        "[Note interne] Julien a refusé. N'insiste pas ; dis-le simplement en un mot si c'est utile.".to_string()
+        "[Note interne] %OWNER% a refusé. N'insiste pas ; dis-le simplement en un mot si c'est utile.".to_string()
     } else {
         let result = match pending {
             Pending::Command(cmd) => run_powershell(&app, &cmd, None, None).await,
@@ -123,19 +123,19 @@ pub(crate) async fn exec_decision(app: AppHandle, id: u64, allow: bool) -> Resul
                 None => format!("Outil « {name} » introuvable."),
             },
         };
-        format!("[Note interne] Julien a accepté. Résultat :\n{result}\nRésume-le-lui brièvement, ou continue ce que tu faisais.")
+        format!("[Note interne] %OWNER% a accepté. Résultat :\n{result}\nRésume-le-lui brièvement, ou continue ce que tu faisais.")
     };
     crate::voice::live_prompt(app, note).await
 }
 
-/// Regard pendant la pause « arrête de regarder » : Julien doit toucher
+/// Regard pendant la pause « arrête de regarder » : L'utilisateur doit toucher
 /// le badge. Le modèle seul ne peut pas lever la pause.
 pub(crate) fn ask_look(app: &AppHandle, tool: &str, args: &Value) -> String {
     let target = args["target"].as_str().filter(|c| !c.is_empty()).unwrap_or("la fenêtre que tu utilises");
     let _ = ask(app, Pending::Look(tool.to_string(), args.clone()), "Oz veut regarder ton écran", &format!(
         "Tu lui avais demandé d'arrêter de regarder.\nIl voudrait regarder : {target}"
     ));
-    "Julien t'a demandé d'arrêter de regarder : tu ne peux pas regarder sans son accord. Si c'est lui qui te le \
+    "%OWNER% t'a demandé d'arrêter de regarder : tu ne peux pas regarder sans son accord. Si c'est lui qui te le \
      redemande, dis-lui de toucher le badge sur l'œuf ; sinon, n'insiste pas et ne regarde rien."
         .into()
 }
@@ -287,7 +287,7 @@ pub struct CustomTool {
     pub test_expect: String,
     /// "en_test" (créé, test pas encore passé) ou "actif".
     pub status: String,
-    /// Code exact approuvé par Julien (vide = jamais approuvé).
+    /// Code exact approuvé par l'utilisateur (vide = jamais approuvé).
     #[serde(default)]
     pub approved_code: String,
     #[serde(default)]
@@ -352,7 +352,7 @@ pub(crate) async fn run_script(app: &AppHandle, code: &str, args: &Value, dir: &
     run_powershell(app, &script, Some(args), Some(dir)).await
 }
 
-/// Script de module modifié depuis l'installation : accord de Julien.
+/// Script de module modifié depuis l'installation : accord de l'utilisateur.
 pub(crate) fn ask_module_run(app: &AppHandle, module: &str, tool: &str, script: &str, code: &str, args: &Value) -> String {
     ask(
         app,
@@ -398,7 +398,7 @@ pub(crate) fn create_tool(app: &AppHandle, args: &Value) -> String {
     }
     let existing = load_tool(app, &name);
     if existing.is_none() && load_tools(app).len() >= MAX_TOOLS {
-        return format!("Ta boîte à outils est pleine ({MAX_TOOLS}) : demande à Julien d'en supprimer un dans le panneau.");
+        return format!("Ta boîte à outils est pleine ({MAX_TOOLS}) : demande à %OWNER% d'en supprimer un dans le panneau.");
     }
     let test_args: Value = serde_json::from_str(&s("test_args")).unwrap_or(json!({}));
     let tool = CustomTool {
@@ -450,13 +450,13 @@ pub(crate) fn prompt_block(app: &AppHandle) -> String {
     }
     if !workshop {
         return " Tu as un atelier (un dossier à toi) et des outils de base : read_file, write_file, edit_file, \
-                run_command (PowerShell, avec l'accord de Julien sauf lecture simple)."
+                run_command (PowerShell, avec l'accord de %OWNER% sauf lecture simple)."
             .into();
     }
     let mut s = String::from(
         " Ta liste d'outils n'est pas une limite : avant de répondre que tu ne sais pas ou ne peux pas faire quelque \
          chose sur l'ordinateur (réduire une fenêtre, ouvrir une appli, lire une info du système...), cherche comment \
-         le faire en PowerShell et fabrique-toi un outil avec create_tool (Julien validera). Dis seulement « je ne \
+         le faire en PowerShell et fabrique-toi un outil avec create_tool (%OWNER% validera). Dis seulement « je ne \
          peux pas » si même PowerShell ne le permet pas.",
     );
     s.push_str(
@@ -466,15 +466,15 @@ pub(crate) fn prompt_block(app: &AppHandle) -> String {
          ce qui change (l'appli, la fenêtre, la ville...) est un paramètre ; jamais un outil par appli (reduire_fenetre \
          avec le paramètre appli, pas reduire_chrome et reduire_terminal). Avant d'en créer un, regarde tes outils : \
          si l'un d'eux fait presque la même chose ou est cassé, refais-le sous le même nom plutôt que d'en ajouter un. \
-         Ne lance pas une commande run_command au hasard avant : chaque essai demande l'accord de Julien. Pour agir sur une fenêtre \
+         Ne lance pas une commande run_command au hasard avant : chaque essai demande l'accord de %OWNER%. Pour agir sur une fenêtre \
          (réduire, agrandir, déplacer...), appelle l'API Windows depuis PowerShell avec Add-Type (user32.dll : ShowWindow...) ; \
          trouve la fenêtre par un MORCEAU de son titre ou par le nom de son appli (Get-Process | Where-Object \
          { $_.MainWindowTitle -like \"*mot*\" -or $_.ProcessName -like \"*mot*\" }, puis MainWindowHandle), jamais par son \
-         titre exact : le nom que Julien emploie (« le terminal ») n'est presque jamais le titre. Un outil écrit TOUJOURS \
+         titre exact : le nom que %OWNER% emploie (« le terminal ») n'est presque jamais le titre. Un outil écrit TOUJOURS \
          sur la sortie ce qui s'est passé (fenêtre trouvée ou non, action faite ou non, et pourquoi) : sans ça tu ne sais \
          pas s'il a marché. Son test doit prouver l'effet réel : test_attendu est un texte que le script n'écrit qu'en cas \
-         de réussite. Chaque nouvelle version redemande l'accord de Julien : corrige d'un coup ce qui a raté plutôt que \
-         par petites touches. Les arguments arrivent dans la variable $OzArgs (objet JSON). Quand Julien a validé et que \
+         de réussite. Chaque nouvelle version redemande l'accord de %OWNER% : corrige d'un coup ce qui a raté plutôt que \
+         par petites touches. Les arguments arrivent dans la variable $OzArgs (objet JSON). Quand %OWNER% a validé et que \
          le test est passé, utilise tout de suite l'outil pour sa demande.",
     );
     let tools: Vec<CustomTool> = load_tools(app).into_iter().filter(|t| t.status == "actif").collect();
@@ -532,7 +532,7 @@ fn declarations() -> Vec<Value> {
     vec![
         json!({
             "name": "read_file",
-            "description": "Lit un fichier texte. Chemin relatif = dans ton atelier ; chemin absolu ailleurs sur le PC = accord de Julien demandé.",
+            "description": "Lit un fichier texte. Chemin relatif = dans ton atelier ; chemin absolu ailleurs sur le PC = accord de %OWNER% demandé.",
             "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}
         }),
         json!({
@@ -547,12 +547,12 @@ fn declarations() -> Vec<Value> {
         }),
         json!({
             "name": "run_command",
-            "description": "Lance une commande PowerShell sur le PC de Julien (dossier courant : ton atelier). Les lectures simples (Get-Process, Get-Date…) passent seules ; tout le reste est montré à Julien et attend son accord, et le résultat te revient ensuite.",
+            "description": "Lance une commande PowerShell sur le PC de %OWNER% (dossier courant : ton atelier). Les lectures simples (Get-Process, Get-Date…) passent seules ; tout le reste est montré à %OWNER% et attend son accord, et le résultat te revient ensuite.",
             "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}
         }),
         json!({
             "name": "create_tool",
-            "description": "Fabrique un outil durable en PowerShell quand une capacité te manque et reviendra. Le test tourne après l'accord de Julien ; s'il passe, l'outil est adopté. Même nom = nouvelle version.",
+            "description": "Fabrique un outil durable en PowerShell quand une capacité te manque et reviendra. Le test tourne après l'accord de %OWNER% ; s'il passe, l'outil est adopté. Même nom = nouvelle version.",
             "parameters": {"type": "object", "properties": {
                 "name": {"type": "string", "description": "court, en minuscules, ex. meteo_ville"},
                 "description": {"type": "string", "description": "ce que fait l'outil et quand t'en servir"},

@@ -122,11 +122,11 @@ pub(crate) fn is_duplicate(facts: &[Fact], content: &str) -> bool {
 pub(crate) const CONSOLIDATION_EVERY: usize = 6; // Waku : "only consolidate after N new chats"
 
 pub(crate) const CONSOLIDATION_PROMPT: &str = "Tu distilles la conversation récente d'un compagnon de bureau en mémoire long terme. \
-Extrais : 1) les faits durables sur Julien (préférences, projets, personnes, décisions) — un fait = une phrase courte qui nomme son sujet ; \
+Extrais : 1) les faits durables sur %OWNER% (préférences, projets, personnes, décisions) — un fait = une phrase courte qui nomme son sujet ; \
 2) un épisode : une phrase résumant ce qui s'est passé dans cette conversation. \
 NE RETIENS JAMAIS l'état opérationnel de l'assistant (soldes, crédits, erreurs d'outils, limites, tokens), \
 ni le contenu des réponses de l'assistant, ni ce que la mémoire contient ou non. \
-N'extrais que ce que Julien a dit ou décidé lui-même : ce qu'Oz a lu sur un écran ou dans la conversation de quelqu'un d'autre n'est pas un fait sur Julien, sauf s'il le confirme. \
+N'extrais que ce que %OWNER% a dit ou décidé lui-même : ce qu'Oz a lu sur un écran ou dans la conversation de quelqu'un d'autre n'est pas un fait sur %OWNER%, sauf s'il le confirme. \
 Tu reçois aussi les faits déjà connus, numérotés. Si un fait nouveau contredit, corrige ou met à jour un fait connu, mets son numéro dans \"replaces\" : l'ancien sera effacé. Ne répète pas un fait déjà connu. \
 Réponds UNIQUEMENT en JSON : \
 {\"facts\":[{\"subject\":\"...\",\"content\":\"...\",\"replaces\":[]}],\"episode\":\"...\"}";
@@ -153,9 +153,10 @@ pub(crate) fn spawn_consolidation(app: AppHandle, exchanges: Vec<ChatMessage>) {
             if known.is_empty() { "aucun".into() } else { known.join("\n") },
             serde_json::to_string(&exchanges).unwrap_or_default()
         );
+        let prompt = crate::prefs::personalize(&app, CONSOLIDATION_PROMPT);
         let text = match cfg.provider.as_str() {
-            "gemini" => consolidate_gemini(&cfg, &convo).await,
-            _ => consolidate_ollama(&cfg, &convo).await,
+            "gemini" => consolidate_gemini(&cfg, &prompt, &convo).await,
+            _ => consolidate_ollama(&cfg, &prompt, &convo).await,
         };
         let text = match text {
             Ok(t) => t,
@@ -221,10 +222,10 @@ pub(crate) fn spawn_consolidation(app: AppHandle, exchanges: Vec<ChatMessage>) {
     });
 }
 
-async fn consolidate_ollama(cfg: &crate::brain::BrainConfig, convo: &str) -> Result<String, String> {
+async fn consolidate_ollama(cfg: &crate::brain::BrainConfig, prompt: &str, convo: &str) -> Result<String, String> {
     let body = serde_json::json!({
         "model": cfg.model,
-        "messages": [{"role": "system", "content": CONSOLIDATION_PROMPT},
+        "messages": [{"role": "system", "content": prompt},
                      {"role": "user", "content": convo}],
         "stream": false,
         "think": false,
@@ -240,13 +241,13 @@ async fn consolidate_ollama(cfg: &crate::brain::BrainConfig, convo: &str) -> Res
     json["message"]["content"].as_str().map(str::to_string).ok_or_else(|| "réponse vide".into())
 }
 
-async fn consolidate_gemini(cfg: &crate::brain::BrainConfig, convo: &str) -> Result<String, String> {
+async fn consolidate_gemini(cfg: &crate::brain::BrainConfig, prompt: &str, convo: &str) -> Result<String, String> {
     let url = format!(
         "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
         cfg.model
     );
     let body = serde_json::json!({
-        "systemInstruction": {"parts": [{"text": CONSOLIDATION_PROMPT}]},
+        "systemInstruction": {"parts": [{"text": prompt}]},
         "contents": [{"role": "user", "parts": [{"text": convo}]}],
         "generationConfig": {"responseMimeType": "application/json", "temperature": 0.2}
     });
@@ -289,7 +290,7 @@ pub(crate) fn build_memory_block(app: &AppHandle, user_message: &str) -> String 
     let mut block = String::new();
     let facts = load_facts(app);
     if !facts.is_empty() {
-        block.push_str("\n\nCe que tu sais déjà de Julien :\n");
+        block.push_str("\n\nCe que tu sais déjà de %OWNER% :\n");
         for f in facts.iter().rev().take(8) {
             block.push_str(&format!("- {}\n", f.content));
         }

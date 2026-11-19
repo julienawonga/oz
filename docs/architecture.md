@@ -88,7 +88,7 @@ Tout est dans le dossier de données de l'application (`%APPDATA%\com.julienawon
 On parle à Oz et la transcription se trompe parfois : rien de risqué ne part sur une simple phrase. C'est le code qui décide, pas le modèle.
 
 - **Écrire, modifier** : seulement dans l'atelier (chemin relatif, sans `..`).
-- **Lire** : libre dans l'atelier ; ailleurs, accord de Julien.
+- **Lire** : libre dans l'atelier ; ailleurs, accord de l'utilisateur.
 - **Exécuter** : un enchaînement de cmdlets de lecture d'une courte liste (`Get-Process`, `Get-Date`, `Select-Object`…), sans variable, bloc ni redirection, passe seul. Tout le reste est affiché sur l'œuf et attend l'accord ; le résultat revient ensuite dans la conversation (`live_prompt`). Délai de 25 s, sortie tronquée.
 - **Outils fabriqués** : `create_tool` enregistre un script PowerShell avec un test. Le test tourne après accord ; l'outil n'est adopté que s'il sort sans erreur et affiche le texte attendu. Le script exact approuvé tourne ensuite sans redemander ; la moindre modification redemande un accord. Au plus 25 outils.
 - Les outils de la session Live sont fixés à son ouverture : un outil fabriqué se lance par l'outil générique `use_tool`, et la liste des outils adoptés est donnée dans les consignes.
@@ -103,9 +103,9 @@ Les outils sont rangés en **toolsets**, des groupes qu'on active ou coupe d'un 
 | Vision | `tools.rs` | `look_at_window`, `watch_with_me` |
 | Corps | `tools.rs` | `move`, `set_pose`, `do_trick`, `places`, `no_go_zone`, `set_layer`, `set_movement_mode` |
 | Expression | `tools.rs` | `express_emotion`, `customize_egg` |
-| Conversation (toujours actif) | `tools.rs` | `end_conversation`, `not_now` |
+| Conversation (toujours actif) | `tools.rs` | `set_owner_name`, `end_conversation`, `not_now` |
 | Son | `volume.rs` | `volume` |
-| Skills | `skills.rs` | `read_skill` |
+| Lecture des skills | `skills.rs` | `read_skill` (l'action qui ouvre un skill ; un skill est une procédure écrite, pas un outil) |
 | Noyau | `kernel.rs` | `read_file`, `write_file`, `edit_file`, `run_command` |
 | Atelier | `kernel.rs` | `create_tool`, `use_tool` |
 
@@ -114,3 +114,7 @@ Les consignes suivent : sans *Skills*, la liste des skills n'est plus donnée ; 
 Chaque module installé (voir [modules.md](modules.md)) ajoute un toolset `mod:<id>`, sans toucher au code.
 
 **Ajouter un toolset au code d'Oz.** Dans le module Rust : une fonction `toolsets() -> Vec<Toolset>` (identifiant, nom, description, déclarations au format Gemini) et une fonction `run(app, name, args) -> Option<String>` qui renvoie `None` pour un outil qui n'est pas le sien. Puis l'ajouter à `builtin()` et à `dispatch()` dans `toolsets.rs`. Un test vérifie qu'aucun outil n'est déclaré deux fois. Tout ce qui touche une fenêtre passe par le broker.
+
+## Prénom de l'utilisateur
+
+Aucun prénom n'est écrit dans le code : les textes envoyés au modèle (consignes, outils, résultats, notes internes, mémoire, initiative) écrivent `%OWNER%`, remplacé au dernier moment par `prefs::personalize` avec le prénom des réglages (`owner_name`). Tant qu'il est vide, `%OWNER%` devient « ton humain » : l'œuf affiche au démarrage qu'il ne connaît pas encore ton prénom, et la consigne demande à Oz de le demander puis de l'enregistrer avec l'outil `set_owner_name` (toolset Conversation). Le journal est personnalisé de la même façon. La date et l'heure locales sont injectées de la même manière, par `brain::now_line`.

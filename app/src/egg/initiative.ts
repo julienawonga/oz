@@ -6,12 +6,12 @@ import { state } from "./state";
 import { robot, say } from "./ui";
 
 // ── Oz engage la conversation (décidé par src-tauri/src/initiative.rs) ──
-// « appeler »       : il appelle Julien par son prénom, jusqu'à trois fois,
-//                     micro ouvert ; dès que Julien répond, il enchaîne.
+// « appeler »       : il appelle l'utilisateur par son prénom, jusqu'à trois fois,
+//                     micro ouvert ; dès que l'utilisateur répond, il enchaîne.
 // « lever_la_main » : signe discret sur l'œuf + petit son ; un clic sur
 //                     l'œuf et il parle. Ignoré, il laisse tomber.
 // L'issue (répondu, ignoré, occupé) est rendue au backend, qui s'en sert
-// pour se faire plus discret quand Julien ne répond pas.
+// pour se faire plus discret quand l'utilisateur ne répond pas.
 
 interface Initiative {
   maniere: "appeler" | "lever_la_main";
@@ -19,9 +19,9 @@ interface Initiative {
   premiere_phrase: string;
 }
 
-const NOTE = "[Note interne, ce n'est pas Julien qui parle]";
+const NOTE = "[Note interne, ce n'est pas %OWNER% qui parle]";
 const CALLS = 3;
-const ANSWER_WAIT_MS = 5000; // silence laissé à Julien après chaque appel
+const ANSWER_WAIT_MS = 5000; // silence laissé à l'utilisateur après chaque appel
 const RAISED_HAND_MS = 90_000;
 
 let current: Initiative | null = null;
@@ -29,7 +29,7 @@ let heard = false;
 let raisedTimer = 0;
 
 void listen<Initiative>("oz://initiative", (e) => void start(e.payload));
-// Julien parle : c'est une réponse à l'appel en cours
+// L'utilisateur parle : c'est une réponse à l'appel en cours
 void listen<string>("oz://voice-user-text", () => {
   if (current?.maniere === "appeler") heard = true;
 });
@@ -79,7 +79,7 @@ async function prompt(text: string): Promise<boolean> {
   }
 }
 
-// ── Appeler Julien par son prénom ──
+// ── Appeler l'utilisateur par son prénom ──
 async function callOut(init: Initiative): Promise<void> {
   heard = false;
   state.holdMic = true; // pas de coupure sur le silence entre deux appels
@@ -88,7 +88,7 @@ async function callOut(init: Initiative): Promise<void> {
   unsilenceTalk();
 
   const calls = [
-    `${NOTE} Tu prends l'initiative de parler à Julien. Ton sujet : ${init.sujet} Pour l'instant, appelle-le seulement par son prénom pour attirer son attention, comme un ami dans la pièce (par exemple « Julien ? »), rien d'autre. Quand il te répondra, enchaîne naturellement, en commençant par quelque chose comme : « ${init.premiere_phrase} »`,
+    `${NOTE} Tu prends l'initiative de parler à %OWNER%. Ton sujet : ${init.sujet} Pour l'instant, appelle-le seulement par son prénom pour attirer son attention, comme un ami dans la pièce (par exemple « %OWNER% ? »), rien d'autre. Quand il te répondra, enchaîne naturellement, en commençant par quelque chose comme : « ${init.premiere_phrase} »`,
     `${NOTE} Il n'a pas répondu. Rappelle-le, seulement son prénom, un peu plus fort ou autrement.`,
     `${NOTE} Toujours rien. Dernier appel, seulement son prénom.`,
   ];
@@ -122,7 +122,7 @@ async function answerRaisedHand(init: Initiative): Promise<void> {
   await startMicStream();
   unsilenceTalk();
   const ok = await prompt(
-    `${NOTE} Julien a vu que tu voulais lui parler et il t'écoute. Parle-lui maintenant. Ton sujet : ${init.sujet} Commence par quelque chose comme : « ${init.premiere_phrase} »`
+    `${NOTE} %OWNER% a vu que tu voulais lui parler et il t'écoute. Parle-lui maintenant. Ton sujet : ${init.sujet} Commence par quelque chose comme : « ${init.premiere_phrase} »`
   );
   finish(ok ? "answered" : "busy");
 }
@@ -134,7 +134,7 @@ export function onEggClick(): void {
     return;
   }
   if (current?.maniere === "appeler") {
-    heard = true; // « oui ? » par le geste : on attend ce que Julien va dire
+    heard = true; // « oui ? » par le geste : on attend ce que l'utilisateur va dire
     return;
   }
   toggleListening();

@@ -22,7 +22,7 @@ function ensureAudio(): AudioContext {
 }
 
 /** Énergie (RMS) de la voix d'Oz en ce moment : sert à reconnaître, dans
- *  le micro, son propre écho de la voix de Julien. */
+ *  le micro, son propre écho de la voix de l'utilisateur. */
 export function outputLevel(): number {
   if (!outAnalyser) return 0;
   outAnalyser.getFloatTimeDomainData(outSamples);
@@ -31,8 +31,8 @@ export function outputLevel(): number {
   return Math.sqrt(e / outSamples.length);
 }
 
-/** Julien parle par-dessus Oz : on coupe sa voix tout de suite (le serveur
- *  coupera aussi son tour en entendant Julien). */
+/** L'utilisateur parle par-dessus Oz : on coupe sa voix tout de suite (le serveur
+ *  coupera aussi son tour en entendant l'utilisateur). */
 export function bargeIn(): void {
   stopAudioQueue();
   talkSilenced = true;
@@ -63,7 +63,7 @@ export function stopVoice(): void {
 }
 
 // Réponse vocale coupée (Échap) : on jette la fin de son audio, jusqu'à
-// ce que Julien reprenne la parole.
+// ce que l'utilisateur reprenne la parole.
 let talkSilenced = false;
 
 /** Oz prend l'initiative : sa prochaine réponse doit être jouée,
@@ -119,10 +119,10 @@ void listen<string>("oz://voice-error", (e) => {
 void listen<string>("oz://voice-turn-complete", () => {
   if (state.voiceClosed) releaseVoice();
 });
-// ── Session « conversation » : Julien parle, Oz répond directement ──
-// Transcription de Julien (affichée pendant qu'il parle)
+// ── Session « conversation » : L'utilisateur parle, Oz répond directement ──
+// Transcription de l'utilisateur (affichée pendant qu'il parle)
 void listen<string>("oz://voice-user-text", (e) => {
-  talkSilenced = false; // Julien reprend la parole : la prochaine réponse sera jouée
+  talkSilenced = false; // L'utilisateur reprend la parole : la prochaine réponse sera jouée
   ozTalkText = "";
   state.userTurnText += e.payload;
   showTranscript("« " + state.userTurnText.trim() + " »", { sticky: true });

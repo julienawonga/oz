@@ -84,7 +84,7 @@ async function resolveAccess(level: "look" | "act" | "sanctuary" | "none"): Prom
     if (state.micRunning) {
       const verb = level === "act" ? "agir sur" : "regarder";
       void invoke("live_prompt", {
-        text: `[Note interne] Julien vient de t'autoriser à ${verb} ${req.app}. Refais maintenant sa demande avec le bon outil, sans commenter l'autorisation : « ${req.intent} »`,
+        text: `[Note interne] %OWNER% vient de t'autoriser à ${verb} ${req.app}. Refais maintenant sa demande avec le bon outil, sans commenter l'autorisation : « ${req.intent} »`,
       }).catch(() => void converse(req.intent));
     } else {
       void converse(req.intent);

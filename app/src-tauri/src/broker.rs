@@ -223,7 +223,7 @@ pub(crate) fn execute_action(broker: &BrokerState, app: &AppHandle, action: &str
     let windows = enumerate_windows();
     match action {
         "list" => {
-            // On ne révèle JAMAIS les sanctuaires, même à Julien
+            // On ne révèle JAMAIS les sanctuaires, même à l'utilisateur
             let perms = broker.0.lock().unwrap();
             let mut seen = std::collections::HashSet::new();
             let mut names: Vec<String> = Vec::new();

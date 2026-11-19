@@ -10,12 +10,12 @@ use crate::journal::log_event;
 use crate::memory::remember;
 use crate::windows_api::{active_window, enumerate_windows, friendly_name, WindowHandle};
 
-/// Trouve la fenêtre visée (vide = celle que Julien utilise) et vérifie
+/// Trouve la fenêtre visée (vide = celle que l'utilisateur utilise) et vérifie
 /// qu'Oz a le droit de la regarder. Sans accord : demande d'accès sur l'œuf.
 pub(crate) fn lookable_window(app: &AppHandle, target: &str) -> Result<WindowHandle, String> {
     let windows = enumerate_windows();
     let found = if target.trim().is_empty() {
-        // Pas de cible → la fenêtre que Julien utilise (pas l'œuf lui-même)
+        // Pas de cible → la fenêtre que l'utilisateur utilise (pas l'œuf lui-même)
         active_window(windows)
     } else {
         let q = target.to_lowercase();

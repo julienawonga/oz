@@ -152,7 +152,7 @@ onPrefs((p, first) => {
   robot.classList.toggle("focus-mode", mode === "concentration");
   if (mode === appliedMode) return;
   appliedMode = mode;
-  // au démarrage, on ne déplace pas un œuf que Julien a déjà posé
+  // au démarrage, on ne déplace pas un œuf que l'utilisateur a déjà posé
   if (first && mode !== "concentration") return;
   if (mode === "bord") void glideToEdge();
   if (mode === "concentration") void glideToCorner();
@@ -197,7 +197,7 @@ setInterval(() => {
     applyPose("idle");
   }
   if (pose === "walk" && stroll) {
-    // Julien l'attrape : la balade s'arrête net, sinon elle remet la
+    // L'utilisateur l'attrape : la balade s'arrête net, sinon elle remet la
     // fenêtre à son ancienne position toutes les 33 ms et l'œuf « résiste »
     if (state.dragging) {
       stroll = null;
@@ -237,3 +237,10 @@ setInterval(() => {
     }
   }
 }, 33);
+
+// Premier démarrage : Oz ne sait pas comment tu t'appelles, il te le demande
+// (la conversation qui suit le lui fait enregistrer, outil set_owner_name).
+onPrefs((p, first) => {
+  if (!first || (p.owner_name ?? "").trim()) return;
+  window.setTimeout(() => say("Salut ! Je ne connais pas encore ton prénom. Clique sur moi et dis-le-moi.", 9000), 2500);
+});

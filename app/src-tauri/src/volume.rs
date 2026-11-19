@@ -90,7 +90,7 @@ pub(crate) fn mute_system(app: AppHandle) -> Result<(), String> {
 
 // ── Baisse automatique des autres applis pendant une conversation ──
 // Comme Teams ou Discord : la vidéo qui tourne dans Chrome couvrait la
-// voix de Julien (le micro la prenait pour lui). Chaque appli est réglée
+// voix de l'utilisateur (le micro la prenait pour lui). Chaque appli est réglée
 // à part (sessions audio Windows) ; Oz et ses processus WebView2, qui
 // portent sa voix, ne sont pas touchés.
 
@@ -104,7 +104,7 @@ use windows::Win32::System::Diagnostics::ToolHelp::{
 };
 
 /// Part du volume d'origine gardée pendant la conversation : rien. Même à
-/// 6 %, une vidéo couvrait encore la voix de Julien ; le son revient après.
+/// 6 %, une vidéo couvrait encore la voix de l'utilisateur ; le son revient après.
 const DUCK_RATIO: f32 = 0.0;
 /// Volumes d'origine des sessions baissées : (pid, volume).
 static DUCKED: Mutex<Vec<(u32, f32)>> = Mutex::new(Vec::new());
@@ -216,7 +216,7 @@ fn restore() -> Result<usize, String> {
     for_each_session(move |pid, vol| unsafe {
         if let Some((_, level)) = saved.iter().find(|(p, _)| *p == pid) {
             // seulement si l'appli est encore au niveau où Oz l'a mise :
-            // si Julien l'a remontée entre-temps, on n'y touche pas
+            // si l'utilisateur l'a remontée entre-temps, on n'y touche pas
             if vol.GetMasterVolume()? <= level * DUCK_RATIO + 0.01 {
                 vol.SetMasterVolume(*level, std::ptr::null())?;
             }

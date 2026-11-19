@@ -7,7 +7,7 @@
 //!    appels ignorés.
 //! 3. JUGEMENT par Gemini : à partir du contexte (heure, fenêtre active,
 //!    mémoire, derniers échanges), il décide de parler ou de se taire, et
-//!    de la manière : appeler Julien par son prénom, ou lever la main.
+//!    de la manière : appeler l'utilisateur par son prénom, ou lever la main.
 //! Le frontend (egg/initiative.ts) met en scène et rend compte du résultat.
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
@@ -28,7 +28,7 @@ use crate::journal::{log_event, now_ts};
 // ── Seuils ──
 const TICK_SECS: u64 = 15;
 const AWAY_SECS: u64 = 15 * 60; // absence comptée comme un départ
-const BACK_IDLE_SECS: u64 = 10; // activité récente = Julien est revenu
+const BACK_IDLE_SECS: u64 = 10; // activité récente = l'utilisateur est revenu
 const SESSION_SECS: u64 = 50 * 60; // longue session sans échange
 const MIN_GAP_SECS: u64 = 12 * 60; // entre deux initiatives
 const IGNORED_PENALTY_SECS: u64 = 25 * 60; // par appel ignoré d'affilée
@@ -107,7 +107,7 @@ fn day_path(app: &AppHandle) -> std::path::PathBuf {
     app.path().app_data_dir().expect("app_data_dir").join("initiative-day.txt")
 }
 
-/// Ce que Julien a au premier plan, jamais un sanctuaire.
+/// Ce que l'utilisateur a au premier plan, jamais un sanctuaire.
 fn active_window_line(app: &AppHandle) -> String {
     let wins = crate::windows_api::enumerate_windows();
     let Some(w) = crate::windows_api::active_window(wins) else {
@@ -135,12 +135,12 @@ enum Signal {
 impl Signal {
     fn describe(&self) -> String {
         match self {
-            Signal::Matin => "Julien vient d'arriver sur son ordinateur pour la première fois aujourd'hui.".into(),
-            Signal::Retour { minutes } => format!("Julien revient après {minutes} minutes loin de son ordinateur."),
+            Signal::Matin => "%OWNER% vient d'arriver sur son ordinateur pour la première fois aujourd'hui.".into(),
+            Signal::Retour { minutes } => format!("%OWNER% revient après {minutes} minutes loin de son ordinateur."),
             Signal::LongueSession { minutes } => format!(
-                "Julien travaille depuis {minutes} minutes sans que vous ayez échangé un mot."
+                "%OWNER% travaille depuis {minutes} minutes sans que vous ayez échangé un mot."
             ),
-            Signal::Essai => "Julien veut tester ta prise de parole spontanée : engage la conversation, sur un sujet de ton choix.".into(),
+            Signal::Essai => "%OWNER% veut tester ta prise de parole spontanée : engage la conversation, sur un sujet de ton choix.".into(),
         }
     }
     fn name(&self) -> &'static str {
@@ -153,7 +153,7 @@ impl Signal {
     }
 }
 
-const JUDGE_PROMPT: &str = "Tu es le jugement d'Oz, un petit œuf compagnon de bureau, le pote de Julien. Un signal vient de se produire sur l'ordinateur de Julien. Décide si Oz engage la conversation maintenant, de lui-même, comme le ferait un ami présent dans la pièce. Bonnes raisons : le saluer le matin ou à son retour, prendre des nouvelles d'un sujet qu'il a évoqué (rendez-vous, projet, souci, envie), réagir à ce qu'il fait si c'est vraiment pertinent, lui proposer une pause après une longue session. Tais-toi si tu n'as rien de sincère ou de neuf à dire, si vous venez de parler, ou si Julien semble concentré sur quelque chose de sérieux et que ça peut attendre. N'invente aucun fait : appuie-toi seulement sur le contexte fourni. Choisis aussi la manière. « appeler » : Oz appelle Julien par son prénom, comme quelqu'un dans la pièce ; pour une salutation, un retour, quelque chose de chaleureux ou qui ne peut pas attendre. « lever_la_main » : un signe discret, Julien viendra quand il voudra ; quand il est occupé ou que le sujet est secondaire. Dans le doute, tais-toi.";
+const JUDGE_PROMPT: &str = "Tu es le jugement d'Oz, un petit œuf compagnon de bureau, le pote de %OWNER%. Un signal vient de se produire sur l'ordinateur de %OWNER%. Décide si Oz engage la conversation maintenant, de lui-même, comme le ferait un ami présent dans la pièce. Bonnes raisons : le saluer le matin ou à son retour, prendre des nouvelles d'un sujet qu'il a évoqué (rendez-vous, projet, souci, envie), réagir à ce qu'il fait si c'est vraiment pertinent, lui proposer une pause après une longue session. Tais-toi si tu n'as rien de sincère ou de neuf à dire, si vous venez de parler, ou si %OWNER% semble concentré sur quelque chose de sérieux et que ça peut attendre. N'invente aucun fait : appuie-toi seulement sur le contexte fourni. Choisis aussi la manière. « appeler » : Oz appelle %OWNER% par son prénom, comme quelqu'un dans la pièce ; pour une salutation, un retour, quelque chose de chaleureux ou qui ne peut pas attendre. « lever_la_main » : un signe discret, %OWNER% viendra quand il voudra ; quand il est occupé ou que le sujet est secondaire. Dans le doute, tais-toi.";
 
 fn judge_tools() -> serde_json::Value {
     json!([{ "functionDeclarations": [
@@ -162,8 +162,8 @@ fn judge_tools() -> serde_json::Value {
             "description": "Oz engage la conversation.",
             "parameters": {"type": "object", "properties": {
                 "maniere": {"type": "string", "enum": ["appeler", "lever_la_main"]},
-                "sujet": {"type": "string", "description": "Ce dont Oz veut parler et pourquoi, en une phrase (note pour Oz, pas pour Julien)."},
-                "premiere_phrase": {"type": "string", "description": "Ce qu'Oz dira d'abord quand Julien l'écoutera : oral, naturel, une ou deux phrases courtes, sans émoji."}
+                "sujet": {"type": "string", "description": "Ce dont Oz veut parler et pourquoi, en une phrase (note pour Oz, pas pour %OWNER%)."},
+                "premiere_phrase": {"type": "string", "description": "Ce qu'Oz dira d'abord quand %OWNER% l'écoutera : oral, naturel, une ou deux phrases courtes, sans émoji."}
             }, "required": ["maniere", "sujet", "premiere_phrase"]}
         },
         {
@@ -193,7 +193,7 @@ async fn judge(app: &AppHandle, signal: &Signal) -> Result<serde_json::Value, St
         .rev()
         .take(8)
         .rev()
-        .map(|m| format!("{} : {}", if m.role == "user" { "Julien" } else { "Oz" }, m.content))
+        .map(|m| format!("{} : {}", if m.role == "user" { "%OWNER%" } else { "Oz" }, m.content))
         .collect();
     let mut ctx = format!("Signal : {}\n{}", signal.describe(), crate::brain::now_line().trim());
     ctx.push('\n');
@@ -204,7 +204,7 @@ async fn judge(app: &AppHandle, signal: &Signal) -> Result<serde_json::Value, St
     ));
     let ignored = IGNORED_STREAK.load(Ordering::Relaxed);
     if ignored > 0 {
-        ctx.push_str(&format!("\nJulien n'a pas répondu à tes {ignored} dernière(s) tentative(s) : sois plus réservé."));
+        ctx.push_str(&format!("\n%OWNER% n'a pas répondu à tes {ignored} dernière(s) tentative(s) : sois plus réservé."));
     }
     ctx.push_str(&crate::memory::build_memory_block(app, ""));
     if history.is_empty() {
@@ -216,8 +216,8 @@ async fn judge(app: &AppHandle, signal: &Signal) -> Result<serde_json::Value, St
 
     let url = format!("https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent");
     let mut body = json!({
-        "systemInstruction": {"parts": [{"text": JUDGE_PROMPT}]},
-        "contents": [{"role": "user", "parts": [{"text": ctx}]}],
+        "systemInstruction": {"parts": [{"text": crate::prefs::personalize(app, JUDGE_PROMPT)}]},
+        "contents": [{"role": "user", "parts": [{"text": crate::prefs::personalize(app, &ctx)}]}],
         "tools": judge_tools(),
         "toolConfig": {"functionCallingConfig": {"mode": "ANY"}},
         "generationConfig": {"temperature": 0.8, "thinkingConfig": {"thinkingLevel": "low"}}

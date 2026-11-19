@@ -1,4 +1,4 @@
-//! Skills : des savoir-faire écrits en texte, que Julien ajoute depuis le
+//! Skills : des savoir-faire écrits en texte, que l'utilisateur ajoute depuis le
 //! panneau (et, plus tard, qu'Oz proposera lui-même).
 //!
 //! Un skill = `skills/<id>/SKILL.md` dans le dossier de config :
@@ -30,7 +30,7 @@ pub struct Skill {
     pub enabled: bool,
     #[serde(default)]
     pub ts: u64,
-    /// Proposé par Oz après relecture de ses ratés, en attente de Julien.
+    /// Proposé par Oz après relecture de ses ratés, en attente de l'utilisateur.
     #[serde(default)]
     pub proposed: bool,
     /// Pourquoi Oz le propose (les ratés constatés).
@@ -156,8 +156,9 @@ pub(crate) fn index_block(app: &AppHandle) -> String {
         return String::new();
     }
     let mut s = String::from(
-        " Tes skills (savoir-faire que Julien t'a appris). Quand la situation correspond à la description d'un skill, \
-         charge-le avec l'outil read_skill AVANT d'agir ou de répondre, puis suis ses instructions sans les réciter :",
+        " Tes skills : des procédures écrites que %OWNER% t'a apprises. Un skill te dit COMMENT t'y prendre ; il \
+         n'agit pas : pour agir, tu appelles toujours tes outils. Quand la situation correspond à la description d'un \
+         skill, ouvre-le avec read_skill AVANT d'agir ou de répondre, puis suis ses étapes sans les réciter :",
     );
     for k in skills {
         s.push_str(&format!(" [{}] {}.", k.name, k.description.trim_end_matches('.')));
@@ -250,7 +251,7 @@ mod tests {
         let s = Skill {
             id: "x".into(),
             name: "Mon skill".into(),
-            description: "Quand Julien\nprépare un mariage".into(),
+            description: "Quand %OWNER%\nprépare un mariage".into(),
             instructions: "Étape 1\n\nÉtape 2: ok".into(),
             enabled: false,
             ts: 0,
@@ -260,7 +261,7 @@ mod tests {
         };
         let p = parse("x", &render(&s), 0).unwrap();
         assert_eq!(p.name, "Mon skill");
-        assert_eq!(p.description, "Quand Julien prépare un mariage");
+        assert_eq!(p.description, "Quand %OWNER% prépare un mariage");
         assert_eq!(p.instructions, "Étape 1\n\nÉtape 2: ok");
         assert!(!p.enabled);
         assert!(p.proposed);
@@ -272,7 +273,7 @@ mod tests {
 // La seconde boucle de Harness², en version légère : de temps en temps,
 // Oz relit son journal (échanges, outils, échecs). Si un même raté revient
 // au moins deux fois et qu'un savoir-faire écrit l'éviterait, il rédige
-// UN skill, désactivé, que Julien accepte ou refuse dans le panneau.
+// UN skill, désactivé, que l'utilisateur accepte ou refuse dans le panneau.
 // Un raté isolé est du bruit : on ne retient rien.
 
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -282,9 +283,9 @@ const REFLECT_EVERY: u32 = 3;
 static SINCE_REFLECTION: AtomicU32 = AtomicU32::new(0);
 const MAX_PROPOSED: usize = 3;
 
-const REFLECTION_PROMPT: &str = "Tu relis le journal d'Oz, un compagnon de bureau vocal (Julien lui parle). \
+const REFLECTION_PROMPT: &str = "Tu relis le journal d'Oz, un compagnon de bureau vocal (%OWNER% lui parle). \
 Cherche un RATÉ QUI REVIENT au moins deux fois : Oz qui dit ne pas pouvoir faire quelque chose, un outil qui échoue, \
-Julien qui doit reformuler ou corriger Oz, une même demande mal traitée. \
+%OWNER% qui doit reformuler ou corriger Oz, une même demande mal traitée. \
 Si un savoir-faire écrit (des instructions en texte, sans code) éviterait ce raté à l'avenir, rédige UN skill. \
 Sinon (raté isolé, simple bruit de transcription, ou problème qu'un texte ne règle pas), n'en propose aucun. \
 N'en propose pas un qui recouvre un skill existant. Les instructions s'adressent à Oz, au tutoiement, courtes et concrètes. \
@@ -299,7 +300,7 @@ pub(crate) fn maybe_reflect(app: &AppHandle) {
     SINCE_REFLECTION.store(0, Ordering::SeqCst);
     let skills = load(app);
     if skills.iter().filter(|s| s.proposed).count() >= MAX_PROPOSED {
-        return; // Julien n'a pas encore trié les propositions
+        return; // L'utilisateur n'a pas encore trié les propositions
     }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -337,7 +338,7 @@ async fn reflect(app: &AppHandle, skills: &[Skill]) -> Result<Option<String>, St
     );
     let url = format!("https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent");
     let body = serde_json::json!({
-        "systemInstruction": {"parts": [{"text": REFLECTION_PROMPT}]},
+        "systemInstruction": {"parts": [{"text": crate::prefs::personalize(app, REFLECTION_PROMPT)}]},
         "contents": [{"role": "user", "parts": [{"text": ctx}]}],
         "generationConfig": {"responseMimeType": "application/json", "temperature": 0.2}
     });
@@ -384,8 +385,8 @@ async fn reflect(app: &AppHandle, skills: &[Skill]) -> Result<Option<String>, St
 pub(crate) fn toolsets() -> Vec<crate::toolsets::Toolset> {
     vec![crate::toolsets::Toolset {
         id: "skills".into(),
-        label: "Skills".into(),
-        description: "Lire les savoir-faire que tu lui as appris (onglet Skills).".into(),
+        label: "Lecture des skills".into(),
+        description: "L'action qui permet à Oz d'ouvrir un skill, une procédure écrite (onglet Skills). Coupé, il ne voit plus aucun skill.".into(),
         core: false,
         tools: vec![serde_json::json!({
             "name": "read_skill",

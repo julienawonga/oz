@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { content, esc, pageHead, toast } from "./util";
+import { content, esc, fmtTs, icon, pageHead, toast } from "./util";
 
 // ── Outils : les toolsets d'Oz, à activer ou couper ──
 // Chaque groupe d'outils vient d'un module (toolsets.rs). Un groupe coupé
@@ -19,6 +19,17 @@ interface Review { manifest: Manifest; scripts: Record<string, string>; skills: 
 /** Module en cours d'examen avant installation (null = aucun). */
 let review: Review | null = null;
 
+interface CustomTool {
+  name: string;
+  description: string;
+  parameters: string;
+  code: string;
+  status: string;
+  approved_code: string;
+  ts: number;
+  uses: number;
+}
+
 interface ToolsetInfo {
   id: string;
   label: string;
@@ -32,6 +43,7 @@ export async function renderToolsets(): Promise<void> {
   if (review) return renderReview(review);
   const sets = (await invoke("get_toolsets")) as ToolsetInfo[];
   const modules = (await invoke("get_modules")) as ModuleInfo[];
+  const tools = (await invoke("get_custom_tools")) as CustomTool[];
   const on = sets.filter((s) => s.enabled).reduce((n, s) => n + s.tools.length, 0);
   let html = pageHead(
     "Outils",
@@ -49,6 +61,24 @@ export async function renderToolsets(): Promise<void> {
       </div>`
     )
     .join("");
+  html += `</section>`;
+
+  // ── Outils qu'Oz s'est fabriqués (PowerShell, testés après ton accord)
+  html += `<section class="panel"><div class="panel-head"><h3>Outils fabriqués par Oz</h3><span class="badge">${tools.length}</span></div>`;
+  html += tools.length
+    ? tools
+        .map((t, i) => {
+          const state = t.status !== "actif" ? "En test" : t.approved_code === t.code ? "Actif" : "Modifié, accord à redonner";
+          return `<div class="list-row" style="flex-wrap:wrap"><div class="main">
+            <div class="title" style="white-space:normal">${esc(t.name)} <span class="badge">${state}</span></div>
+            <div class="meta" style="white-space:normal">${esc(t.description)}</div>
+            <div class="meta">${t.parameters ? "Paramètres : " + esc(t.parameters) + " · " : ""}${t.uses} utilisation(s) · <time>${fmtTs(t.ts)}</time></div></div>
+            <button class="btn sm" data-code="${i}" type="button">Voir le code</button>
+            <button class="btn danger sm" data-tool="${i}" type="button">${icon("trash")}Supprimer</button>
+            <pre class="tool-code hidden" id="tool-code-${i}">${esc(t.code)}</pre></div>`;
+        })
+        .join("")
+    : `<div class="empty"><strong>Aucun outil</strong>Quand une capacité lui manque, Oz peut s'écrire un outil PowerShell. Il est testé seulement après ton accord, sur l'œuf.</div>`;
   html += `</section>`;
 
   // ── Modules installables ──
@@ -92,6 +122,19 @@ export async function renderToolsets(): Promise<void> {
   document.getElementById("mod-source")!.addEventListener("keydown", (e) => {
     if ((e as KeyboardEvent).key === "Enter") void prepare();
   });
+  content.querySelectorAll<HTMLButtonElement>("button[data-code]").forEach((b) =>
+    b.addEventListener("click", () => document.getElementById(`tool-code-${b.dataset.code}`)!.classList.toggle("hidden"))
+  );
+  content.querySelectorAll<HTMLButtonElement>("button[data-tool]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      const t = tools[Number(b.dataset.tool)];
+      if (!confirm(`Supprimer l'outil « ${t.name} » ?`)) return;
+      await invoke("delete_custom_tool", { name: t.name });
+      toast("Outil supprimé");
+      void renderToolsets();
+    })
+  );
+
   content.querySelectorAll<HTMLButtonElement>("button[data-uninstall]").forEach((b) =>
     b.addEventListener("click", async () => {
       if (!confirm(`Désinstaller le module « ${b.dataset.uninstall} » ?`)) return;

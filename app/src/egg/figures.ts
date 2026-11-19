@@ -121,7 +121,7 @@ async function runPath(path: Path): Promise<void> {
   const start = performance.now();
   await new Promise<void>((done) => {
     const frame = () => {
-      if (state.dragging) return done(); // Julien l'attrape : on arrête
+      if (state.dragging) return done(); // L'utilisateur l'attrape : on arrête
       const t = Math.min(1, (performance.now() - start) / path.ms);
       const [dx, dy] = path.at(t, dir);
       moveWindowTo(ox + dx * s, oy + dy * s);

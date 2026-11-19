@@ -19,7 +19,7 @@ let lastActivity = 0;
 // Pendant qu'Oz parle, le micro entend son écho. On apprend en continu
 // le rapport écho / voix d'Oz (le micro ÷ ce qui sort des enceintes) ;
 // quand le micro dépasse nettement l'écho attendu pendant ~250 ms, c'est
-// Julien qui parle : Oz se tait et les derniers morceaux, gardés en
+// L'utilisateur qui parle : Oz se tait et les derniers morceaux, gardés en
 // réserve, partent pour que le début de sa phrase ne soit pas perdu.
 const BARGE_FRAMES = 3; // tampons de ~85 ms consécutifs
 const BARGE_FACTOR = 3; // au-dessus de 3x l'écho attendu
@@ -90,7 +90,7 @@ export async function startMicStream(): Promise<void> {
       let energy = 0;
       for (let i = 0; i < f32.length; i++) energy += f32[i] * f32[i];
       const rms = Math.sqrt(energy / f32.length);
-      // Oz parle : son écho n'est jamais envoyé, sauf si Julien parle par-dessus
+      // Oz parle : son écho n'est jamais envoyé, sauf si l'utilisateur parle par-dessus
       if (state.ozSpeaking) {
         lastActivity = performance.now(); // le silence ne compte qu'une fois Oz tu
         if (!bargeEnabled) return;
@@ -101,7 +101,7 @@ export async function startMicStream(): Promise<void> {
           loudFrames++;
         } else {
           loudFrames = 0;
-          // pas de voix de Julien : on affine le rapport écho / voix d'Oz
+          // pas de voix de l'utilisateur : on affine le rapport écho / voix d'Oz
           if (out > 0.005) echoGain = Math.min(2, Math.max(0.02, 0.9 * echoGain + 0.1 * (rms / out)));
         }
         backlog.push(encode(f32));

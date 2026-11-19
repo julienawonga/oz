@@ -11,7 +11,7 @@ use crate::journal::log_event;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Prefs {
-    /// La bulle affiche ce que disent Julien et Oz.
+    /// La bulle affiche ce que disent l'utilisateur et Oz.
     #[serde(default = "yes")]
     pub show_transcript: bool,
     /// Oz peut engager la conversation de lui-même.
@@ -36,12 +36,15 @@ pub struct Prefs {
     /// lisse, points, rayures, etoiles, taches.
     #[serde(default = "default_texture")]
     pub egg_texture: String,
-    /// Julien peut couper la parole à Oz en parlant par-dessus lui.
+    /// L'utilisateur peut couper la parole à Oz en parlant par-dessus lui.
     #[serde(default = "yes")]
     pub barge_in: bool,
     /// Toolsets coupés dans l'onglet Outils (voir toolsets.rs).
     #[serde(default)]
     pub disabled_toolsets: Vec<String>,
+    /// Prénom de l'utilisateur ; vide : Oz le lui demande.
+    #[serde(default)]
+    pub owner_name: String,
 }
 
 pub(crate) const MOVE_MODES: &[&str] = &["libre", "fixe", "bord", "concentration"];
@@ -77,6 +80,7 @@ impl Default for Prefs {
             egg_texture: default_texture(),
             barge_in: true,
             disabled_toolsets: Vec::new(),
+            owner_name: String::new(),
         }
     }
 }
@@ -186,4 +190,23 @@ pub(crate) async fn update(app: &AppHandle, f: impl FnOnce(&mut Prefs)) -> Resul
     let mut p = current(app);
     f(&mut p);
     set_prefs(app.clone(), p).await
+}
+
+/// Les textes envoyés au modèle écrivent `%OWNER%` à la place du prénom
+/// de l'utilisateur : il vient des réglages (ou « ton humain » tant
+/// qu'Oz ne le connaît pas). Sans réglages chargés, rien ne change.
+pub(crate) const OWNER: &str = "%OWNER%";
+
+pub(crate) fn owner_name(app: &AppHandle) -> String {
+    app.try_state::<PrefsState>()
+        .map(|s| s.0.lock().unwrap().owner_name.trim().to_string())
+        .unwrap_or_default()
+}
+
+pub(crate) fn personalize(app: &AppHandle, text: &str) -> String {
+    if !text.contains(OWNER) {
+        return text.to_string();
+    }
+    let name = owner_name(app);
+    text.replace(OWNER, if name.is_empty() { "ton humain" } else { &name })
 }

@@ -1,4 +1,4 @@
-//! Outils du cerveau : Gemini comprend la demande de Julien, quelle que
+//! Outils du cerveau : Gemini comprend la demande de l'utilisateur, quelle que
 //! soit la formulation, et appelle ces outils. Aucun mot-clé.
 //!
 //! La sécurité ne dépend PAS du modèle : chaque outil qui touche une
@@ -26,11 +26,11 @@ pub(crate) fn toolsets() -> Vec<Toolset> {
             tools: vec![
             json!({
                 "name": "list_windows",
-                "description": "Liste les applications et fenêtres ouvertes sur l'écran de Julien."
+                "description": "Liste les applications et fenêtres ouvertes sur l'écran de %OWNER%."
             }),
             json!({
                 "name": "close_window",
-                "description": "Ferme une fenêtre ou une application de Julien. À n'utiliser que s'il le demande clairement.",
+                "description": "Ferme une fenêtre ou une application de %OWNER%. À n'utiliser que s'il le demande clairement.",
                 "parameters": {"type": "object", "properties": {
                     "target": {"type": "string", "description": "Nom de l'application ou mot du titre de la fenêtre, par exemple chrome, spotify, bloc-notes."}
                 }, "required": ["target"]}
@@ -52,7 +52,7 @@ pub(crate) fn toolsets() -> Vec<Toolset> {
             tools: vec![
             json!({
                 "name": "look_at_window",
-                "description": "Fait une capture d'une fenêtre et la décrit. Sert dès que Julien demande ce qu'il y a sur son écran, ce que tu vois, ou de l'aide sur ce qu'il fait. Inutile pour la fenêtre que tu regardes déjà en direct (watch_with_me) : tu la vois.",
+                "description": "Fait une capture d'une fenêtre et la décrit. Sert dès que %OWNER% demande ce qu'il y a sur son écran, ce que tu vois, ou de l'aide sur ce qu'il fait. Inutile pour la fenêtre que tu regardes déjà en direct (watch_with_me) : tu la vois.",
                 "parameters": {"type": "object", "properties": {
                     "target": {"type": "string", "description": "Application ou mot du titre à regarder. Vide pour la fenêtre au premier plan."},
                     "question": {"type": "string", "description": "Ce qu'il faut chercher ou expliquer dans la capture."}
@@ -60,10 +60,10 @@ pub(crate) fn toolsets() -> Vec<Toolset> {
             }),
             json!({
                 "name": "watch_with_me",
-                "description": "Vue en direct : tu vois une fenêtre en continu pendant que Julien te parle, pour suivre ce qu'il fait et réagir tout de suite. commencer : quand il te demande de regarder avec lui, de suivre ce qu'il fait, de garder un œil sur une fenêtre. arreter : quand il te demande d'arrêter de regarder. Une seule fenêtre à la fois.",
+                "description": "Vue en direct : tu vois une fenêtre en continu pendant que %OWNER% te parle, pour suivre ce qu'il fait et réagir tout de suite. commencer : quand il te demande de regarder avec lui, de suivre ce qu'il fait, de garder un œil sur une fenêtre. arreter : quand il te demande d'arrêter de regarder. Une seule fenêtre à la fois.",
                 "parameters": {"type": "object", "properties": {
                     "action": {"type": "string", "enum": ["commencer", "arreter"]},
-                    "target": {"type": "string", "description": "Application ou mot du titre. Vide pour la fenêtre que Julien utilise."}
+                    "target": {"type": "string", "description": "Application ou mot du titre. Vide pour la fenêtre que %OWNER% utilise."}
                 }, "required": ["action"]}
             }),
             ],
@@ -98,7 +98,7 @@ pub(crate) fn toolsets() -> Vec<Toolset> {
             }),
             json!({
                 "name": "places",
-                "description": "Lieux nommés de l'écran, propres à Oz et Julien (« ta maison », « le travail »). nommer_ici : donne ce nom à l'endroit où se trouve Oz maintenant (si Julien nomme un endroit où tu n'es pas, va d'abord y aller avec move). aller : Oz glisse jusqu'au lieu. lister : les lieux connus. oublier : supprime un lieu.",
+                "description": "Lieux nommés de l'écran, propres à Oz et %OWNER% (« ta maison », « le travail »). nommer_ici : donne ce nom à l'endroit où se trouve Oz maintenant (si %OWNER% nomme un endroit où tu n'es pas, va d'abord y aller avec move). aller : Oz glisse jusqu'au lieu. lister : les lieux connus. oublier : supprime un lieu.",
                 "parameters": {"type": "object", "properties": {
                     "operation": {"type": "string", "enum": ["nommer_ici", "aller", "lister", "oublier"]},
                     "name": {"type": "string", "description": "Nom du lieu, par exemple maison, travail."}
@@ -113,14 +113,14 @@ pub(crate) fn toolsets() -> Vec<Toolset> {
             }),
             json!({
                 "name": "set_layer",
-                "description": "Où Oz se place par rapport aux fenêtres. derriere : Oz passe derrière toutes les fenêtres, sur le bureau (quand Julien te demande de te mettre en arrière-plan, derrière les fenêtres, de ne plus le gêner). devant : Oz repasse au-dessus de toutes les fenêtres.",
+                "description": "Où Oz se place par rapport aux fenêtres. derriere : Oz passe derrière toutes les fenêtres, sur le bureau (quand %OWNER% te demande de te mettre en arrière-plan, derrière les fenêtres, de ne plus le gêner). devant : Oz repasse au-dessus de toutes les fenêtres.",
                 "parameters": {"type": "object", "properties": {
                     "layer": {"type": "string", "enum": ["devant", "derriere"]}
                 }, "required": ["layer"]}
             }),
             json!({
                 "name": "set_movement_mode",
-                "description": "Comment Oz se déplace de lui-même. libre : il se balade sur l'écran. fixe : il reste où il est. bord : il se pose au bord de l'écran le plus proche et y reste. concentration : il se fait petit et discret dans un coin, ne bouge plus et ne prend plus la parole de lui-même (quand Julien veut se concentrer, travailler tranquille).",
+                "description": "Comment Oz se déplace de lui-même. libre : il se balade sur l'écran. fixe : il reste où il est. bord : il se pose au bord de l'écran le plus proche et y reste. concentration : il se fait petit et discret dans un coin, ne bouge plus et ne prend plus la parole de lui-même (quand %OWNER% veut se concentrer, travailler tranquille).",
                 "parameters": {"type": "object", "properties": {
                     "mode": {"type": "string", "enum": ["libre", "fixe", "bord", "concentration"]}
                 }, "required": ["mode"]}
@@ -143,7 +143,7 @@ pub(crate) fn toolsets() -> Vec<Toolset> {
             }),
             json!({
                 "name": "customize_egg",
-                "description": "Change l'apparence d'Oz : sa couleur et/ou sa texture, quand Julien le demande. Traduis la couleur demandée en code #rrggbb (rose : #f472b6, vert : #4ade80, violet : #a78bfa, orange : #fb923c, rouge : #f87171, jaune : #facc15...) ; « origine » remet le bleu d'origine.",
+                "description": "Change l'apparence d'Oz : sa couleur et/ou sa texture, quand %OWNER% le demande. Traduis la couleur demandée en code #rrggbb (rose : #f472b6, vert : #4ade80, violet : #a78bfa, orange : #fb923c, rouge : #f87171, jaune : #facc15...) ; « origine » remet le bleu d'origine.",
                 "parameters": {"type": "object", "properties": {
                     "color": {"type": "string", "description": "#rrggbb, ou « origine »"},
                     "texture": {"type": "string", "enum": ["lisse", "points", "rayures", "etoiles", "taches"]}
@@ -154,16 +154,23 @@ pub(crate) fn toolsets() -> Vec<Toolset> {
         Toolset {
             id: "conversation".into(),
             label: "Conversation".into(),
-            description: "Finir une conversation, se taire un moment. Toujours actif.".into(),
+            description: "Finir une conversation, se taire un moment, retenir ton prénom. Toujours actif.".into(),
             core: true,
             tools: vec![
             json!({
+                "name": "set_owner_name",
+                "description": "Enregistre le prénom de la personne avec qui tu vis (celui qu'elle te donne, ou celui par lequel elle préfère qu'on l'appelle).",
+                "parameters": {"type": "object", "properties": {
+                    "name": {"type": "string", "description": "Le prénom, tel qu'elle le dit."}
+                }, "required": ["name"]}
+            }),
+            json!({
                 "name": "end_conversation",
-                "description": "Julien met fin à la conversation (« tais-toi », « c'est fini », « laisse tomber », « à plus », « merci c'est tout ») : tu dis un mot très bref et tu arrêtes de l'écouter. Il rouvrira la conversation en cliquant sur l'œuf."
+                "description": "%OWNER% met fin à la conversation (« tais-toi », « c'est fini », « laisse tomber », « à plus », « merci c'est tout ») : tu dis un mot très bref et tu arrêtes de l'écouter. Il rouvrira la conversation en cliquant sur l'œuf."
             }),
             json!({
                 "name": "not_now",
-                "description": "Julien ne veut pas être dérangé : Oz ne prendra plus la parole de lui-même pendant un moment, et la conversation en cours s'arrête. À utiliser quand il dit qu'il est occupé, concentré, en réunion, ou te demande de le laisser tranquille un moment.",
+                "description": "%OWNER% ne veut pas être dérangé : Oz ne prendra plus la parole de lui-même pendant un moment, et la conversation en cours s'arrête. À utiliser quand il dit qu'il est occupé, concentré, en réunion, ou te demande de le laisser tranquille un moment.",
                 "parameters": {"type": "object", "properties": {
                     "minutes": {"type": "integer", "description": "Durée du silence demandée, 60 par défaut."}
                 }}
@@ -181,7 +188,7 @@ pub(crate) fn declarations(app: &AppHandle) -> Value {
 /// Exécute un appel d'outil et renvoie le résultat (texte lu par le modèle).
 pub(crate) async fn run(app: &AppHandle, name: &str, args: &Value) -> String {
     log_event(app, "tool", &format!("{name} {args}"));
-    let result = guarded(app, name, args).await;
+    let result = crate::prefs::personalize(app, &guarded(app, name, args).await);
     // le résultat aussi : sans lui, un outil qui échoue reste invisible
     log_event(app, "tool", &format!("{name} -> {}", result.chars().take(160).collect::<String>()));
     result
@@ -276,7 +283,7 @@ pub(crate) async fn run_builtin(app: &AppHandle, name: &str, args: &Value) -> Op
             match crate::prefs::update(app, |p| p.move_mode = mode.clone()).await {
                 Ok(()) => match mode.as_str() {
                     "libre" => "Mode libre : tu te balades à nouveau sur l'écran.".into(),
-                    "fixe" => "Mode fixe : tu ne bouges plus de toi-même ; Julien peut toujours te déplacer.".into(),
+                    "fixe" => "Mode fixe : tu ne bouges plus de toi-même ; %OWNER% peut toujours te déplacer.".into(),
                     "bord" => "Mode ancré : tu te poses au bord de l'écran le plus proche et tu y restes.".into(),
                     _ => "Mode concentration : tu te fais petit dans un coin, tu ne bouges plus et tu ne prends plus la parole de toi-même. Dis-le en trois mots.".into(),
                 },
@@ -307,6 +314,16 @@ pub(crate) async fn run_builtin(app: &AppHandle, name: &str, args: &Value) -> Op
         }
         "no_go_zone" => zone(app, &arg("operation")),
         // fin de conversation : la vue en direct s'arrête aussi
+        "set_owner_name" => {
+            let name: String = arg("name").chars().filter(|c| !c.is_control()).take(40).collect();
+            if name.is_empty() {
+                return Some("Il me faut un prénom.".into());
+            }
+            match crate::prefs::update(app, |p| p.owner_name = name.clone()).await {
+                Ok(()) => format!("C'est noté : tu l'appelles {name}."),
+                Err(e) => format!("Impossible : {e}"),
+            }
+        }
         "end_conversation" => {
             let _ = app.emit("oz://do", json!({"action": "end"}));
             stop_watching(app);

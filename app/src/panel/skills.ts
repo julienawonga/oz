@@ -18,16 +18,6 @@ interface Skill {
   module?: string;
 }
 
-interface CustomTool {
-  name: string;
-  description: string;
-  parameters: string;
-  code: string;
-  status: string;
-  approved_code: string;
-  ts: number;
-  uses: number;
-}
 
 const EMPTY: Skill = { id: "", name: "", description: "", instructions: "", enabled: true, ts: 0, proposed: false, reason: "" };
 
@@ -37,10 +27,9 @@ let editing: Skill | null = null;
 export async function renderSkills(): Promise<void> {
   if (editing) return renderEditor(editing);
   const skills = (await invoke("get_skills")) as Skill[];
-  const tools = (await invoke("get_custom_tools")) as CustomTool[];
   let html = pageHead(
     "Skills",
-    "Des savoir-faire que tu apprends à Oz, et les outils qu'il s'est fabriqués. Quand la situation correspond à la description d'un skill, il lit les instructions et les suit. Un nouveau skill ou outil compte à partir de la conversation suivante."
+    "Des procédures écrites que tu apprends à Oz : elles lui disent comment s'y prendre, et il agit ensuite avec ses outils (onglet Outils). Quand la situation correspond à la description d'un skill, il le lit et le suit. Un nouveau skill compte à partir de la conversation suivante."
   );
   html += `<section class="panel"><div class="panel-head"><h3>Skills</h3><span class="badge">${skills.length}</span>
     <button class="btn primary sm" id="sk-new" type="button" style="margin-left:auto">${icon("plus")}Ajouter</button></div>`;
@@ -71,37 +60,7 @@ export async function renderSkills(): Promise<void> {
     : `<div class="empty"><strong>Aucun skill</strong>Ajoute-en un : par exemple comment préparer ta journée, ou comment réagir quand tu lances une réunion.</div>`;
   html += `</section>`;
 
-  // outils qu'Oz s'est fabriqués (PowerShell, testés après ton accord)
-  html += `<section class="panel"><div class="panel-head"><h3>Outils fabriqués par Oz</h3><span class="badge">${tools.length}</span></div>`;
-  html += tools.length
-    ? tools
-        .map((t, i) => {
-          const state = t.status !== "actif" ? "En test" : t.approved_code === t.code ? "Actif" : "Modifié, accord à redonner";
-          return `<div class="list-row" style="flex-wrap:wrap"><div class="main">
-            <div class="title" style="white-space:normal">${esc(t.name)} <span class="badge">${state}</span></div>
-            <div class="meta" style="white-space:normal">${esc(t.description)}</div>
-            <div class="meta">${t.parameters ? "Paramètres : " + esc(t.parameters) + " · " : ""}${t.uses} utilisation(s) · <time>${fmtTs(t.ts)}</time></div></div>
-            <button class="btn sm" data-code="${i}" type="button">Voir le code</button>
-            <button class="btn danger sm" data-tool="${i}" type="button">${icon("trash")}Supprimer</button>
-            <pre class="tool-code hidden" id="tool-code-${i}">${esc(t.code)}</pre></div>`;
-        })
-        .join("")
-    : `<div class="empty"><strong>Aucun outil</strong>Quand une capacité lui manque, Oz peut s'écrire un outil PowerShell. Il est testé seulement après ton accord, sur l'œuf.</div>`;
-  html += `</section>`;
   content.innerHTML = html;
-
-  content.querySelectorAll<HTMLButtonElement>("button[data-code]").forEach((b) =>
-    b.addEventListener("click", () => document.getElementById(`tool-code-${b.dataset.code}`)!.classList.toggle("hidden"))
-  );
-  content.querySelectorAll<HTMLButtonElement>("button[data-tool]").forEach((b) =>
-    b.addEventListener("click", async () => {
-      const t = tools[Number(b.dataset.tool)];
-      if (!confirm(`Supprimer l'outil « ${t.name} » ?`)) return;
-      await invoke("delete_custom_tool", { name: t.name });
-      toast("Outil supprimé");
-      void renderSkills();
-    })
-  );
 
   document.getElementById("sk-new")!.addEventListener("click", () => {
     editing = { ...EMPTY };
@@ -152,7 +111,7 @@ function renderEditor(s: Skill): void {
       <div class="field"><label for="sk-name">Nom</label>
         <input id="sk-name" type="text" value="${esc(s.name)}" placeholder="Préparer ma journée" autocomplete="off"></div>
       <div class="field"><label for="sk-desc">Quand s'en servir</label>
-        <input id="sk-desc" type="text" value="${esc(s.description)}" maxlength="240" placeholder="Quand Julien commence sa journée ou demande ce qu'il a à faire" autocomplete="off">
+        <input id="sk-desc" type="text" value="${esc(s.description)}" maxlength="240" placeholder="Quand tu commences ta journée ou demandes ce que tu as à faire" autocomplete="off">
         <div class="hint">C'est la seule partie qu'Oz voit en permanence : elle doit lui dire clairement dans quelle situation lire ce skill.</div></div>
       <div class="field"><label for="sk-instr">Instructions</label>
         <textarea id="sk-instr" rows="12" maxlength="8000" placeholder="1. Regarde son calendrier dans Chrome&#10;2. Résume les trois choses importantes&#10;3. Demande-lui par laquelle il veut commencer">${esc(s.instructions)}</textarea></div>

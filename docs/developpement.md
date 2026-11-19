@@ -73,4 +73,4 @@ Dossier : `%APPDATA%\com.julienawonga.oz`. Pour repartir de zéro, fermer Oz et 
 | Oz ne retrouve pas ses données | Vérifier que `com.julienawonga.nid` existait et que `com.julienawonga.oz` n'existait pas avant le premier lancement : la migration ne copie que vers un dossier absent. |
 | Le micro coupe trop vite, ou reste ouvert | Voir [voix](voix.md), section *Ouvrir et fermer le micro*. |
 | Le raccourci du micro ne marche pas | Une autre application l'utilise sans doute : le changer dans *Réglages* (un message dit s'il est refusé). |
-| Oz ne parle plus après Échap | Il reprend dès que Julien reparle. |
+| Oz ne parle plus après Échap | Il reprend dès que l'utilisateur reparle. |

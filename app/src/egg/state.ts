@@ -14,9 +14,9 @@ export const state = {
   micRunning: false,
   /** Glisser-déposer de la fenêtre en cours. */
   dragging: false,
-  /** Transcription de ce que dit Julien (accumulée par tour de parole). */
+  /** Transcription de ce que dit l'utilisateur (accumulée par tour de parole). */
   userTurnText: "",
-  /** Dernière phrase de Julien : rejouée après l'accord d'une permission. */
+  /** Dernière phrase de l'utilisateur : rejouée après l'accord d'une permission. */
   lastUserIntent: "",
   /** Backend vocal gemini-live (lu depuis la config cerveau). */
   voiceLiveMode: false,
@@ -30,7 +30,7 @@ export const state = {
   voiceClosed: false,
   /** Réglage : la bulle affiche la transcription de la conversation. */
   showTranscript: true,
-  /** Oz appelle Julien : le micro ne doit pas se couper sur le silence. */
+  /** Oz appelle l'utilisateur : le micro ne doit pas se couper sur le silence. */
   holdMic: false,
   /** Une figure (zigzag, toupie...) est en cours : pas de balade autonome. */
   performing: false,
@@ -38,7 +38,7 @@ export const state = {
   moveMode: "libre",
 };
 
-interface EggPrefs { show_transcript: boolean; move_mode: string; egg_color: string; egg_texture: string }
+interface EggPrefs { show_transcript: boolean; move_mode: string; egg_color: string; egg_texture: string; owner_name?: string }
 const listeners: Array<(p: EggPrefs, first: boolean) => void> = [];
 let lastPrefs: EggPrefs | null = null;
 /** Appelé à chaque changement de réglages (et une fois au démarrage). */
@@ -84,3 +84,4 @@ function refreshBrainConfig(): void {
 }
 refreshBrainConfig();
 void listen("oz://brain-updated", refreshBrainConfig);
+

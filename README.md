@@ -51,9 +51,10 @@ It understands what you say **with a real language model, no keywords**: "what's
 | 👀 **Vision** | Oz captures an allowed window and describes it. **Watch with me**: it follows one allowed window live while you talk. After "stop watching", no capture without a tap from you. |
 | 🧩 **Toolsets and modules** | Tools are grouped in toolsets you switch on and off, Hermes Agent style. Install **modules** (PowerShell tools + skills) from a git link or a folder, after reading their code. |
 | 🛠️ **Grows its own toolbox** | A Pi-style kernel (read, write, edit files in its own workshop; run PowerShell with your approval) and tools Oz writes itself, each with a test that runs only after you approve it. |
-| 📚 **Skills** | Written know-how you add from the panel; Oz loads one when the situation matches, and drafts new ones from its repeated misses for you to accept. |
+| 📚 **Skills** | Written procedures (`SKILL.md`) you add from the panel: they tell Oz *how* to go about something, and Oz acts with its tools. It opens one when the situation matches, and drafts new ones from its repeated misses for you to accept. |
 | 🗂️ **Memory** | Lasting facts from your conversations, saved at the end of each one; a new fact that contradicts an old one replaces it. Deletable one by one. |
 | 🐣 **A living egg** | Strolls, poses, tricks (zigzag, spins, flips, dance), named places ("go home"), no-go zones, movement modes (free, fixed, docked, focus), in front of or behind windows, any color and a texture. |
+| 👋 **Yours** | No name in the code: Oz asks your first name on first launch (or reads it from *Settings*) and uses it everywhere, along with your local date and time. |
 | 🎛️ **Admin panel** | Sidebar app in the egg's colors, light and dark: chat, settings, memory, skills, tools and modules, permissions with the live list of open windows, zones, activity log, models. |
 
 <p align="center">
@@ -70,9 +71,9 @@ Each group can be switched off in the **Tools** tab: Gemini no longer sees it an
 | Vision | `look_at_window`, `watch_with_me` | *Look*, checked on every frame |
 | Body | `move`, `set_pose`, `do_trick`, `places`, `no_go_zone`, `set_layer`, `set_movement_mode` | — |
 | Expression | `express_emotion`, `customize_egg` | — |
-| Conversation (always on) | `end_conversation`, `not_now` | — |
+| Conversation (always on) | `set_owner_name`, `end_conversation`, `not_now` | — |
 | Sound | `volume` | — |
-| Skills | `read_skill` | — |
+| Skill reading | `read_skill` (the action that opens a skill, a written procedure) | — |
 | Kernel | `read_file`, `write_file`, `edit_file`, `run_command` | writes only in its workshop; reading elsewhere and any non-read-only command ask first |
 | Workshop | `create_tool`, `use_tool` | approval for the test and after any change |
 | *Each installed module* | its own tools | its code is reviewed at install; a changed script asks again |

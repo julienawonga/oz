@@ -314,7 +314,7 @@ pub fn capture_window_jpeg(hwnd: HWND) -> Result<Vec<u8>, String> {
     }
 }
 
-/// La fenêtre que Julien utilise : la fenêtre au premier plan, ou, si
+/// La fenêtre que l'utilisateur utilise : la fenêtre au premier plan, ou, si
 /// c'est l'œuf ou le panneau d'Oz (exclus de `windows`), la suivante dans
 /// l'ordre d'empilement. Quand on parle à Oz, c'est lui qui a le focus.
 pub(crate) fn active_window(windows: Vec<WindowHandle>) -> Option<WindowHandle> {

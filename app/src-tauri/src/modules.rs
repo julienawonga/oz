@@ -11,7 +11,7 @@
 //! Installation en deux temps, depuis le panneau : `prepare_module` copie
 //! la source (dépôt git ou dossier local) dans `modules/.staging/` et
 //! renvoie ce qu'elle contient (outils, code des scripts) ; rien ne tourne.
-//! Julien relit puis `install_module` l'installe : le code exact des
+//! L'utilisateur relit puis `install_module` l'installe : le code exact des
 //! scripts est alors approuvé. Un module installé devient un toolset
 //! (activable dans l'onglet Outils) et ses outils sont déclarés tels quels
 //! à Gemini. Si un script change après l'installation, il ne tourne plus
@@ -58,7 +58,7 @@ pub struct Manifest {
     pub tools: Vec<ModuleTool>,
 }
 
-/// Ce que Julien relit avant d'installer.
+/// Ce que l'utilisateur relit avant d'installer.
 #[derive(Serialize)]
 pub struct Review {
     manifest: Manifest,
@@ -179,7 +179,7 @@ pub(crate) async fn run(app: &AppHandle, name: &str, args: &Value) -> Option<Str
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
     if approved.get(&tool.script) != Some(&code) {
-        // script modifié depuis l'installation : accord de Julien
+        // script modifié depuis l'installation : accord de l'utilisateur
         return Some(crate::kernel::ask_module_run(app, &m.id, &tool.name, &tool.script, &code, args));
     }
     log_event(app, "module", &format!("{} : {}", m.id, tool.name));
@@ -274,7 +274,7 @@ pub(crate) async fn prepare_module(app: AppHandle, source: String) -> Result<Rev
     Ok(Review { scripts: scripts_of(&dest, &m), skills: skills_of(&dest), manifest: m })
 }
 
-/// Étape 2 : Julien a relu, le module est installé et ses scripts approuvés.
+/// Étape 2 : L'utilisateur a relu, le module est installé et ses scripts approuvés.
 #[tauri::command]
 pub(crate) async fn install_module(app: AppHandle, id: String) -> Result<(), String> {
     if !valid_id(&id) {
