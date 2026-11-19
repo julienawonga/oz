@@ -57,9 +57,12 @@ body {
   animation: none;
 }
 
-#robot-body {
-  /* couleur de la coquille, réglable dans le panneau (Apparence) */
+#robot {
+  /* couleur de la coquille (et des pieds), réglable dans le panneau */
   --egg: #38bdf8;
+}
+
+#robot-body {
   width: 92px;
   height: 100px;
   background: linear-gradient(160deg,
@@ -152,7 +155,7 @@ body {
 .foot {
   width: 26px;
   height: 10px;
-  background: #0369a1;
+  background: color-mix(in srgb, var(--egg) 62%, black);
   border-radius: 0 0 12px 12px;
 }
 
@@ -458,3 +461,119 @@ button:focus-visible {
 }
 #robot.focus-mode:hover { opacity: 0.95; }
 #robot.focus-mode #robot-body { animation-duration: 5s; }
+
+/* ── Émotions (outil exprimer_emotion) ── */
+.brow {
+  position: absolute;
+  top: 26px;
+  width: 15px;
+  height: 3px;
+  border-radius: 3px;
+  background: #0c2340;
+  opacity: 0;
+  transition: opacity .2s ease, transform .2s ease;
+  z-index: 1;
+}
+#brow-left { left: 22px; }
+#brow-right { right: 22px; }
+.cheek {
+  position: absolute;
+  top: 56px;
+  width: 14px;
+  height: 7px;
+  border-radius: 50%;
+  background: #fb7185;
+  opacity: 0;
+  filter: blur(1.5px);
+  transition: opacity .25s ease;
+  z-index: 1;
+}
+#cheek-left { left: 12px; }
+#cheek-right { right: 12px; }
+.eye { transition: height .15s ease, border-radius .15s ease, transform .15s ease; }
+
+/* joie et fierté : yeux en croissant, grand sourire */
+#robot.mood-joie .eye, #robot.mood-fierte .eye, #robot.mood-rire .eye, #robot.mood-amour .eye {
+  height: 7px; border-radius: 10px 10px 3px 3px;
+}
+#robot.mood-joie #mouth, #robot.mood-fierte #mouth, #robot.mood-amour #mouth { width: 24px; height: 11px; }
+#robot.mood-fierte .brow { opacity: 1; transform: translateY(-3px); }
+#robot.mood-fierte #robot-body { scale: 1.05; }
+/* rire : bouche ouverte, il se secoue */
+#robot.mood-rire #mouth { width: 22px; height: 14px; border-radius: 4px 4px 14px 14px; }
+#robot.mood-rire #robot-body { animation: mood-shake .18s ease-in-out 8; }
+/* colère : sourcils froncés, bouche serrée, rouge aux joues */
+#robot.mood-colere .eye { height: 11px; }
+#robot.mood-colere .brow { opacity: 1; }
+#robot.mood-colere #brow-left { transform: translateY(4px) rotate(22deg); }
+#robot.mood-colere #brow-right { transform: translateY(4px) rotate(-22deg); }
+#robot.mood-colere #mouth { width: 14px; height: 3px; border-radius: 2px; }
+#robot.mood-colere .cheek { opacity: .55; background: #ef4444; }
+#robot.mood-colere #robot-body { animation: mood-shake .12s ease-in-out 5; }
+/* tristesse : sourcils relevés au centre, bouche à l'envers */
+#robot.mood-tristesse .eye { height: 13px; transform: translateY(3px); }
+#robot.mood-tristesse .brow { opacity: 1; }
+#robot.mood-tristesse #brow-left { transform: translateY(2px) rotate(-18deg); }
+#robot.mood-tristesse #brow-right { transform: translateY(2px) rotate(18deg); }
+#robot.mood-tristesse #mouth { height: 6px; border-radius: 12px 12px 0 0; transform: translateX(-50%) translateY(3px); }
+#robot.mood-tristesse #robot-body { animation-duration: 4.5s; }
+/* surprise : grands yeux ronds, petite bouche en o */
+#robot.mood-surprise .eye { height: 22px; }
+#robot.mood-surprise .brow { opacity: 1; transform: translateY(-6px); }
+#robot.mood-surprise #mouth { width: 10px; height: 10px; border-radius: 50%; }
+/* amour, douceur, gêne : les joues rosissent */
+#robot.mood-amour .cheek, #robot.mood-douceur .cheek { opacity: .8; }
+#robot.mood-douceur .eye { height: 9px; border-radius: 10px 10px 4px 4px; }
+#robot.mood-douceur #mouth { width: 14px; height: 6px; }
+#robot.mood-gene .cheek { opacity: 1; }
+#robot.mood-gene .eye { height: 12px; transform: translateY(4px); }
+#robot.mood-gene #mouth { width: 10px; height: 4px; border-radius: 6px; }
+/* réflexion : un sourcil levé, bouche de côté */
+#robot.mood-reflexion #brow-left { opacity: 1; transform: translateY(-5px) rotate(-10deg); }
+#robot.mood-reflexion .eye { height: 12px; }
+#robot.mood-reflexion #mouth { width: 10px; height: 4px; border-radius: 4px; transform: translateX(-10%); }
+/* ennui : paupières lourdes, bouche plate */
+#robot.mood-ennui .eye { height: 5px; border-radius: 3px 3px 8px 8px; }
+#robot.mood-ennui #mouth { width: 12px; height: 3px; border-radius: 2px; }
+#robot.mood-ennui #robot-body { animation-duration: 5s; }
+/* malice : un œil plissé, sourire en coin */
+#robot.mood-malice #eye-left { height: 6px; border-radius: 3px; }
+#robot.mood-malice #brow-right { opacity: 1; transform: translateY(-4px) rotate(-12deg); }
+#robot.mood-malice #mouth { width: 16px; height: 7px; transform: translateX(-35%) rotate(-10deg); }
+
+@keyframes mood-shake {
+  0%, 100% { translate: 0 0; }
+  25% { translate: -3px 0; }
+  75% { translate: 3px 0; }
+}
+
+/* bulles d'émoji qui s'envolent au-dessus de l'œuf */
+#emotes {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 70%;
+  height: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+.emote {
+  position: absolute;
+  bottom: 0;
+  translate: -50% 0;
+  line-height: 1;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .18));
+  animation: emote-rise 2.4s cubic-bezier(.2, .7, .3, 1) forwards;
+}
+@keyframes emote-rise {
+  0%   { transform: translate(0, 0) scale(.4) rotate(0); opacity: 0; }
+  15%  { transform: translate(calc(var(--dx) * .2), -18px) scale(1.1) rotate(calc(var(--rot) * .3)); opacity: 1; }
+  100% { transform: translate(var(--dx), -150px) scale(.9) rotate(var(--rot)); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .emote { animation-duration: 1.2s; }
+  #robot[class*="mood-"] #robot-body { animation: none; }
+}
+/* yeux en croissant ou mi-clos : pas de pupille qui dépasse */
+#robot.mood-joie .pupil, #robot.mood-rire .pupil, #robot.mood-amour .pupil,
+#robot.mood-fierte .pupil, #robot.mood-ennui .pupil, #robot.mood-malice #eye-left .pupil { opacity: 0; }

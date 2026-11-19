@@ -49,10 +49,11 @@ export function onPrefs(f: (p: EggPrefs, first: boolean) => void): void {
 
 /** Couleur et texture de la coquille (variables CSS de styles.css). */
 function applyAppearance(p: EggPrefs): void {
+  const robot = document.getElementById("robot");
   const body = document.getElementById("robot-body");
-  if (!body) return;
-  if (p.egg_color) body.style.setProperty("--egg", p.egg_color);
-  else body.style.removeProperty("--egg");
+  if (!robot || !body) return;
+  if (p.egg_color) robot.style.setProperty("--egg", p.egg_color);
+  else robot.style.removeProperty("--egg");
   body.className = body.className.replace(/\btexture-\S+/g, "").trim();
   if (p.egg_texture && p.egg_texture !== "lisse") body.classList.add(`texture-${p.egg_texture}`);
 }

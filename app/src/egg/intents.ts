@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { showEmotion } from "./emotions";
 import { performFigure, type Target } from "./figures";
 import { stopMicStream } from "./mic";
 import { applyPose, eggBounds, glideTo } from "./motion";
@@ -12,7 +13,9 @@ import { state } from "./state";
 // La réponse parlée vient du cerveau : ces actions restent silencieuses.
 
 interface DoEvent {
-  action: "move" | "pose" | "figure" | "goto" | "end" | "mute";
+  action: "move" | "pose" | "figure" | "goto" | "end" | "mute" | "emotion";
+  emotion?: string;
+  intensity?: number;
   direction?: string;
   pose?: string;
   figure?: string;
@@ -26,6 +29,7 @@ void listen<DoEvent>("oz://do", (e) => {
   if (action === "goto" && x !== undefined && y !== undefined) void glideTo(x, y);
   if (action === "end") void endConversation();
   if (action === "mute") void muteAfterReply();
+  if (action === "emotion" && e.payload.emotion) showEmotion(e.payload.emotion, e.payload.intensity);
   if (action === "move" && direction) void moveTo(direction);
   if (action === "pose") applyPose(pose === "assis" ? "sit" : "idle");
 });

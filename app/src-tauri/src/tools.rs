@@ -57,6 +57,14 @@ pub(crate) fn declarations() -> Value {
             }, "required": ["pose"]}
         },
         {
+            "name": "exprimer_emotion",
+            "description": "Montre ce que tu ressens sur ton visage, avec des bulles qui s'envolent de toi. Appelle-le EN MÊME TEMPS que ta réponse quand tu ressens quelque chose de net (tu ris, tu es gêné, fâché pour de faux, fier, attendri, surpris...), pas à chaque phrase.",
+            "parameters": {"type": "object", "properties": {
+                "emotion": {"type": "string", "enum": ["joie", "rire", "colere", "tristesse", "surprise", "amour", "douceur", "gene", "reflexion", "ennui", "fierte", "malice"]},
+                "intensite": {"type": "integer", "description": "1 léger, 2 net, 3 fort"}
+            }, "required": ["emotion"]}
+        },
+        {
             "name": "mode_deplacement",
             "description": "Comment Oz se déplace de lui-même. libre : il se balade sur l'écran. fixe : il reste où il est. bord : il se pose au bord de l'écran le plus proche et y reste. concentration : il se fait petit et discret dans un coin, ne bouge plus et ne prend plus la parole de lui-même (quand Julien veut se concentrer, travailler tranquille).",
             "parameters": {"type": "object", "properties": {
@@ -222,6 +230,14 @@ async fn dispatch(app: &AppHandle, name: &str, args: &Value) -> String {
         "changer_pose" => {
             let _ = app.emit("oz://do", json!({"action": "pose", "pose": arg("pose")}));
             "Pose changée.".into()
+        }
+        "exprimer_emotion" => {
+            let _ = app.emit("oz://do", json!({
+                "action": "emotion",
+                "emotion": arg("emotion"),
+                "intensity": args["intensite"].as_i64().unwrap_or(2)
+            }));
+            "Montré.".into()
         }
         "changer_plan" => {
             let behind = arg("plan") == "derriere";
