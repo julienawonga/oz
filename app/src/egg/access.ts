@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { converse } from "./converse";
 import { state } from "./state";
-import { accessBadge, accessCard } from "./ui";
+import { accessBadge, accessCard, placeBubble } from "./ui";
 
 // ── Demandes d'accès : un badge sur l'œuf, une carte à la demande ────
 interface AccessReq { app: string; process: string; title: string; need: "look" | "act"; intent: string }
@@ -35,6 +35,7 @@ function openAccessCard(): void {
   document.getElementById("access-allow")!.textContent =
     req.need === "act" ? "Autoriser les actions" : "Autoriser la lecture";
   accessCard.classList.remove("hidden");
+  void placeBubble(true);
 }
 
 export function closeAccessCard(): void {

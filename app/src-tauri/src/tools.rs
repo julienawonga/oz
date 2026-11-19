@@ -62,6 +62,33 @@ pub(crate) fn declarations() -> Value {
             "parameters": {"type": "object", "properties": {
                 "operation": {"type": "string", "enum": ["interdire_ici", "autoriser_ici", "compter"]}
             }, "required": ["operation"]}
+        },
+        {
+            "name": "faire_une_figure",
+            "description": "Oz (toi, le petit œuf) fait une figure pour s'amuser ou faire le spectacle. Trajets sur l'écran : zigzag, cercle, huit, vague, spirale. Sur place : toupie (tourne sur lui-même), salto, demi_tour (se retourne, montre son dos puis revient), saut. danse : un enchaînement de plusieurs figures. Avec « vers », Oz va à cet endroit en faisant la figure (« va en bas à droite en zigzag »). Tu peux appeler l'outil plusieurs fois pour enchaîner.",
+            "parameters": {"type": "object", "properties": {
+                "figure": {"type": "string", "enum": ["zigzag", "cercle", "huit", "vague", "spirale", "toupie", "salto", "demi_tour", "saut", "danse"]},
+                "vers": {"type": "string", "description": "Destination facultative : une direction (gauche, droite, haut, bas, centre, haut gauche, haut droite, bas gauche, bas droite) ou le nom d'un lieu enregistré."}
+            }, "required": ["figure"]}
+        },
+        {
+            "name": "lieux",
+            "description": "Lieux nommés de l'écran, propres à Oz et Julien (« ta maison », « le travail »). nommer_ici : donne ce nom à l'endroit où se trouve Oz maintenant (si Julien nomme un endroit où tu n'es pas, va d'abord y aller avec se_deplacer). aller : Oz glisse jusqu'au lieu. lister : les lieux connus. oublier : supprime un lieu.",
+            "parameters": {"type": "object", "properties": {
+                "operation": {"type": "string", "enum": ["nommer_ici", "aller", "lister", "oublier"]},
+                "nom": {"type": "string", "description": "Nom du lieu, par exemple maison, travail."}
+            }, "required": ["operation"]}
+        },
+        {
+            "name": "finir_conversation",
+            "description": "Julien met fin à la conversation (« tais-toi », « c'est fini », « laisse tomber », « à plus », « merci c'est tout ») : tu dis un mot très bref et tu arrêtes de l'écouter. Il rouvrira la conversation en cliquant sur l'œuf."
+        },
+        {
+            "name": "pas_maintenant",
+            "description": "Julien ne veut pas être dérangé : Oz ne prendra plus la parole de lui-même pendant un moment, et la conversation en cours s'arrête. À utiliser quand il dit qu'il est occupé, concentré, en réunion, ou te demande de le laisser tranquille un moment.",
+            "parameters": {"type": "object", "properties": {
+                "minutes": {"type": "integer", "description": "Durée du silence demandée, 60 par défaut."}
+            }}
         }
     ]}])
 }
@@ -109,14 +136,44 @@ async fn dispatch(app: &AppHandle, name: &str, args: &Value) -> String {
             let _ = app.emit("oz://do", json!({"action": "move", "direction": arg("direction")}));
             "Oz se déplace.".into()
         }
+        "faire_une_figure" => {
+            let vers = arg("vers");
+            let mut ev = json!({"action": "figure", "figure": arg("figure")});
+            if !vers.is_empty() {
+                // un lieu nommé, sinon une direction
+                match crate::places::find(app, &vers) {
+                    Some(p) => {
+                        ev["x"] = json!(p.x);
+                        ev["y"] = json!(p.y);
+                    }
+                    None => ev["direction"] = json!(vers),
+                }
+            }
+            let _ = app.emit("oz://do", ev);
+            "Figure lancée.".into()
+        }
+        "lieux" => crate::places::tool(app, &arg("operation"), &arg("nom")),
         "changer_pose" => {
             let _ = app.emit("oz://do", json!({"action": "pose", "pose": arg("pose")}));
             "Pose changée.".into()
         }
         "zone_interdite" => zone(app, &arg("operation")),
+        "finir_conversation" => {
+            let _ = app.emit("oz://do", json!({"action": "end"}));
+            "Conversation terminée : le micro se coupe après ta réponse.".into()
+        }
+        "pas_maintenant" => {
+            let _ = app.emit("oz://do", json!({"action": "end"}));
+            crate::initiative::snooze(app, args["minutes"].as_u64().unwrap_or(60))
+        }
         other => format!("Outil inconnu : {other}"),
     }
 }
+
+/// Place de l'œuf dans sa fenêtre, en pixels logiques (voir #stage et
+/// #robot-body dans styles.css : fenêtre 360×720, œuf 92×106 centré,
+/// 260 px sous lui).
+const EGG_BOX: (f64, f64, f64, f64) = (134.0, 354.0, 92.0, 106.0);
 
 /// Zones interdites autour de la position actuelle d'Oz.
 fn zone(app: &AppHandle, op: &str) -> String {
@@ -128,10 +185,13 @@ fn zone(app: &AppHandle, op: &str) -> String {
     let Some(win) = app.get_webview_window("oz") else {
         return "Fenêtre d'Oz introuvable.".into();
     };
-    let (Ok(pos), Ok(size)) = (win.outer_position(), win.outer_size()) else {
+    let (Ok(pos), Ok(scale)) = (win.outer_position(), win.scale_factor()) else {
         return "Position d'Oz illisible.".into();
     };
-    let (x, y, w, h) = (pos.x as f64, pos.y as f64, size.width as f64, size.height as f64);
+    // la zone couvre l'œuf, pas toute sa fenêtre (qui garde de la place
+    // pour la bulle au-dessus et en dessous)
+    let (ex, ey, ew, eh) = EGG_BOX;
+    let (x, y, w, h) = (pos.x as f64 + ex * scale, pos.y as f64 + ey * scale, ew * scale, eh * scale);
     let before = zones.len();
     match op {
         "interdire_ici" => zones.push(Zone { x, y, w, h, label: "interdit".into() }),

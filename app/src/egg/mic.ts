@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { stopVoice } from "./audio";
 import { state } from "./state";
-import { micBtn, robot, say, showBubble } from "./ui";
+import { robot, say } from "./ui";
 
 // ── Micro STREAMING : ta voix part en continu vers Gemini Live ───────
 let micStream: MediaStream | null = null;
@@ -14,6 +14,7 @@ const SILENCE_AFTER_SPEECH_MS = 8000; // après une phrase
 const SILENCE_BEFORE_SPEECH_MS = 15000; // rien dit depuis l'ouverture
 const VOICE_RMS = 0.015; // énergie minimale pour compter comme « de la voix »
 let lastActivity = 0;
+let micStarting = false; // getUserMedia en cours : pas de double ouverture
 let heardSomething = false;
 
 function noteActivity(): void {
@@ -23,21 +24,17 @@ function noteActivity(): void {
 // la transcription renvoyée par le serveur compte aussi comme activité
 void listen<string>("oz://voice-user-text", noteActivity);
 
-micBtn.addEventListener("click", (e) => {
-  e.stopPropagation();
+/** Clic sur l'œuf : il t'écoute ; s'il parlait, tu lui coupes la parole ;
+ *  s'il écoutait déjà en silence, il arrête. */
+export function toggleListening(): void {
+  if (state.ozSpeaking) {
+    stopVoice(); // le micro, déjà ouvert, reprend dès qu'Oz se tait
+    if (!state.micRunning) void startMicStream();
+    return;
+  }
   if (state.micRunning) void stopMicStream();
   else void startMicStream();
-});
-
-// la session Live s'est fermée : on remet l'interface au propre,
-// elle se rouvrira toute seule au prochain message / à la prochaine parole
-void listen<string>("oz://voice-disconnected", () => {
-  stopVoice();
-  if (state.micRunning) {
-    void stopMicStream();
-    say("La connexion vocale s'est coupée — relance le micro 🎙️", 5000);
-  }
-});
+}
 
 function b64FromInt16(i16: Int16Array): string {
   const bytes = new Uint8Array(i16.buffer);
@@ -50,8 +47,9 @@ function b64FromInt16(i16: Int16Array): string {
 }
 
 export async function startMicStream(): Promise<void> {
+  if (state.micRunning || micStarting) return;
+  micStarting = true;
   try {
-    micBtn.classList.add("connecting");
     micStream = await navigator.mediaDevices.getUserMedia({
       audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
     });
@@ -96,15 +94,12 @@ export async function startMicStream(): Promise<void> {
       });
     };
     state.micRunning = true;
+    micStarting = false;
     lastActivity = performance.now();
     heardSomething = false;
-    robot.classList.add("listening"); // halo visible sur l'œuf, même barre rangée
-    micBtn.classList.remove("connecting");
-    micBtn.classList.add("recording");
-    micBtn.title = "Arrêter l'écoute";
+    robot.classList.add("listening"); // halo sur l'œuf : il t'écoute
     state.userTurnText = "";
-    stopVoice(); // si Oz parlait, on lui coupe la parole : c'est ton tour
-    showBubble("Je t'écoute... 🎙️");
+    if (!state.holdMic) stopVoice(); // si Oz parlait, on lui coupe la parole : c'est ton tour
     const errWatch = setInterval(() => {
       if (micErr) {
         say("🎙️ " + micErr, 8000);
@@ -116,7 +111,7 @@ export async function startMicStream(): Promise<void> {
         return;
       }
       const limit = heardSomething ? SILENCE_AFTER_SPEECH_MS : SILENCE_BEFORE_SPEECH_MS;
-      if (!state.thinking && performance.now() - lastActivity > limit) {
+      if (!state.thinking && !state.holdMic && performance.now() - lastActivity > limit) {
         clearInterval(errWatch);
         void stopMicStream();
         say("Je n'entends plus rien, j'arrête d'écouter.", 3500);
@@ -124,7 +119,7 @@ export async function startMicStream(): Promise<void> {
     }, 500);
   } catch (err) {
     console.error("micro:", err);
-    micBtn.classList.remove("connecting");
+    micStarting = false;
     say("Je n'ai pas accès au micro 🙈 — autorise-le dans Windows (Confidentialité › Microphone)", 6000);
   }
 }
@@ -132,8 +127,6 @@ export async function startMicStream(): Promise<void> {
 export async function stopMicStream(): Promise<void> {
   state.micRunning = false;
   robot.classList.remove("listening");
-  micBtn.title = "Parler";
-  micBtn.classList.remove("recording");
   micProcessor?.disconnect();
   micStream?.getTracks().forEach((t) => t.stop());
   micStream = null;

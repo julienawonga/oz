@@ -7,12 +7,16 @@
 //  brain       : LLM (Ollama / Gemini), chat streaming  memory  : faits, épisodes, album
 //  vision      : capture + description                  zones   : zones interdites
 //  voice       : Gemini Live, micro, TTS, whisper
+//  initiative  : Oz engage la conversation             prefs   : réglages de comportement
 
 mod brain;
 mod broker;
 mod cursor;
+mod initiative;
 mod journal;
 mod memory;
+mod places;
+mod prefs;
 mod tools;
 mod vision;
 mod voice;
@@ -56,6 +60,16 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        // raccourci global du micro (réglable) : l'œuf l'ouvre comme un clic
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        let _ = tauri::Emitter::emit(app, "oz://shortcut-mic", ());
+                    }
+                })
+                .build(),
+        )
         .setup(|app| {
             migrate_legacy_data(app.handle());
             let perms = broker::load_permissions(app.handle());
@@ -67,13 +81,19 @@ pub fn run() {
                 since_consolidation: Mutex::new(0),
             });
             app.manage(zones::ZonesState(Mutex::new(zones::load_zones(app.handle()))));
+            let prefs = prefs::load_prefs(app.handle());
+            if let Err(e) = prefs::apply_shortcut(app.handle(), &prefs.mic_shortcut) {
+                journal::log_event(app.handle(), "prefs", &e);
+            }
+            app.manage(prefs::PrefsState(Mutex::new(prefs)));
+            initiative::spawn(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             windows_api::list_windows,
             broker::get_permissions,
             broker::set_permission,
-            cursor::get_cursor_pos,
+            cursor::cursor_in_window,
             brain::chat,
             brain::get_brain_config,
             brain::set_brain_config,
@@ -92,7 +112,12 @@ pub fn run() {
             voice::voice_feed,
             voice::voice_end,
             voice::mic_chunk,
-            voice::mic_end
+            voice::mic_end,
+            voice::live_prompt,
+            prefs::get_prefs,
+            prefs::set_prefs,
+            initiative::initiative_result,
+            initiative::initiative_try
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

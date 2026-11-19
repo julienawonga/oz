@@ -149,43 +149,56 @@ pub(crate) type WsStream = tokio_tungstenite::WebSocketStream<
 pub(crate) type WsTx = SplitSink<WsStream, WsMessage>;
 type TxSlot = tokio::sync::Mutex<Option<WsTx>>;
 
-// ═══════════════ Deux sessions Gemini Live distinctes ═══════════════
-// LISTEN : reçoit le micro, renvoie la transcription de Julien. Tout ce que
-//          le modèle dit sur ce canal est ignoré (jamais joué).
-// SPEAK  : ne reçoit que les textes du cerveau à lire ; TOUT son audio est
-//          la voix d'Oz.
-// Avant, un seul canal mélangeait les deux : la fin de la réponse
-// spontanée (jetée) arrivait après le début de la vraie réponse et
-// l'œuf jetait la vraie réponse -> Oz restait muet.
+// ═══════════════ Deux sessions Gemini Live ═══════════════
+// TALK  : la conversation à voix haute. Reçoit le micro, comprend, appelle
+//         les outils (le broker reste garant des permissions) et répond
+//         directement en audio. Pas d'étape texte : premier son en ~1 s.
+// SPEAK : lit à voix haute les réponses du cerveau texte (messages tapés,
+//         reprise après une permission accordée).
+// Avant, le micro passait par une session d'écoute, puis le cerveau texte,
+// puis SPEAK : 3 à 8 s avant la première syllabe.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(crate) enum Live {
-    Listen,
+    Talk,
     Speak,
 }
 
-static LISTEN_TX: TxSlot = tokio::sync::Mutex::const_new(None);
+static TALK_TX: TxSlot = tokio::sync::Mutex::const_new(None);
 static SPEAK_TX: TxSlot = tokio::sync::Mutex::const_new(None);
-static LISTEN_CONNECT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+static TALK_CONNECT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+// numéro de la session ouverte : le lecteur d'une ancienne session (fermée
+// par un changement de langue) ne doit pas effacer l'émetteur de la nouvelle
+static TALK_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static SPEAK_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static SPEAK_CONNECT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+// poignée de reprise de la conversation : le serveur ferme les sessions
+// régulièrement, on rouvre avec elle sans perdre le fil
+static RESUME_HANDLE: Mutex<Option<String>> = Mutex::new(None);
 // chunks micro mis en mémoire pendant l'ouverture de session (zéro mot perdu)
 pub(crate) static MIC_PENDING: tokio::sync::Mutex<Vec<String>> = tokio::sync::Mutex::const_new(Vec::new());
 
 impl Live {
     fn tx(self) -> &'static TxSlot {
         match self {
-            Live::Listen => &LISTEN_TX,
+            Live::Talk => &TALK_TX,
             Live::Speak => &SPEAK_TX,
         }
     }
     fn connect_lock(self) -> &'static tokio::sync::Mutex<()> {
         match self {
-            Live::Listen => &LISTEN_CONNECT,
+            Live::Talk => &TALK_CONNECT,
             Live::Speak => &SPEAK_CONNECT,
+        }
+    }
+    fn generation(self) -> &'static std::sync::atomic::AtomicU64 {
+        match self {
+            Live::Talk => &TALK_GEN,
+            Live::Speak => &SPEAK_GEN,
         }
     }
     fn name(self) -> &'static str {
         match self {
-            Live::Listen => "écoute",
+            Live::Talk => "conversation",
             Live::Speak => "parole",
         }
     }
@@ -202,11 +215,11 @@ async fn send_on(ch: Live, msg: serde_json::Value) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-/// Vide le buffer micro vers la session d'écoute (ordre préservé)
+/// Vide le buffer micro vers la session de conversation (ordre préservé)
 pub(crate) async fn flush_mic_pending() -> Result<(), String> {
     let mut pending = MIC_PENDING.lock().await;
     let queued: Vec<String> = std::mem::take(&mut *pending);
-    let mut guard = LISTEN_TX.lock().await;
+    let mut guard = TALK_TX.lock().await;
     let Some(tx) = guard.as_mut() else {
         // session toujours absente : on remet les chunks en attente
         *pending = queued;
@@ -255,6 +268,9 @@ pub(crate) async fn ensure_live_session(app: &AppHandle, key: &str, ch: Live) ->
             .map_err(|e| e.to_string())?,
     );
     let fail = |msg: String| {
+        if ch == Live::Talk {
+            *RESUME_HANDLE.lock().unwrap() = None; // poignée périmée : on repartira de zéro
+        }
         log_event(app, "voice", &format!("live {} : {msg}", ch.name()));
         voice_emit(app, "error", &format!("Gemini Live : {msg}"));
         format!("Gemini Live : {msg}")
@@ -269,21 +285,41 @@ pub(crate) async fn ensure_live_session(app: &AppHandle, key: &str, ch: Live) ->
 
     // ── 1. SETUP : doit être le PREMIER message du flux ──
     let setup = match ch {
-        Live::Listen => serde_json::json!({"setup": {
-            "model": "models/gemini-3.8-live",
-            "generationConfig": {"responseModalities": ["AUDIO"]},
-            "inputAudioTranscription": {},
-            "systemInstruction": {"parts": [{"text":
-                "Tu ne sers qu'à transcrire. Ne réponds jamais, ou le plus brièvement possible."}]}
-        }}),
+        Live::Talk => {
+            let mut session = serde_json::json!({});
+            if let Some(h) = RESUME_HANDLE.lock().unwrap().clone() {
+                session["handle"] = serde_json::json!(h); // reprend la conversation où elle était
+            }
+            serde_json::json!({"setup": {
+                "model": "models/gemini-3.8-live",
+                "generationConfig": {
+                    "responseModalities": ["AUDIO"],
+                    "speechConfig": {
+                        // langue imposée : sinon un bruit transcrit en chinois le faisait répondre en chinois
+                        "languageCode": crate::prefs::language_code(app),
+                        "voiceConfig": {"prebuiltVoiceConfig": {"voiceName": live_voice_name(app)}}
+                    }
+                },
+                "systemInstruction": {"parts": [{"text": crate::brain::live_system_prompt(app)}]},
+                "tools": crate::tools::declarations(),
+                "inputAudioTranscription": {},
+                "outputAudioTranscription": {},
+                // sans compression, une session audio est coupée au bout de ~15 min
+                "contextWindowCompression": {"slidingWindow": {}},
+                "sessionResumption": session
+            }})
+        }
         Live::Speak => serde_json::json!({"setup": {
             "model": "models/gemini-3.8-live",
             "generationConfig": {
                 "responseModalities": ["AUDIO"],
-                "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": live_voice_name(app)}}}
+                "speechConfig": {
+                    "languageCode": crate::prefs::language_code(app),
+                    "voiceConfig": {"prebuiltVoiceConfig": {"voiceName": live_voice_name(app)}}
+                }
             },
             "systemInstruction": {"parts": [{"text":
-                "Tu es la voix d'Oz. Tu lis à voix haute, en français, mot pour mot, le texte qu'on te donne. Tu n'ajoutes rien, tu ne commentes rien, tu ne réponds jamais au contenu."}]}
+                "Tu es la voix d'Oz. Tu lis à voix haute, mot pour mot, le texte qu'on te donne. Tu n'ajoutes rien, tu ne commentes rien, tu ne réponds jamais au contenu."}]}
         }}),
     };
     ws.send(WsMessage::Text(setup.to_string()))
@@ -318,15 +354,20 @@ pub(crate) async fn ensure_live_session(app: &AppHandle, key: &str, ch: Live) ->
 
     // ── 3. Split : émetteur dans l'état, lecteur en tâche de fond ──
     let (tx, rx) = ws.split();
+    let session_id = ch.generation().fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
     *ch.tx().lock().await = Some(tx);
-    tokio::spawn(read_live(app.clone(), ch, rx));
+    tokio::spawn(read_live(app.clone(), ch, rx, session_id));
     Ok(())
 }
 
 /// Lecteur d'une session Live : traduit les messages serveur en événements.
-async fn read_live(app: AppHandle, ch: Live, mut rx: futures_util::stream::SplitStream<WsStream>) {
+async fn read_live(app: AppHandle, ch: Live, mut rx: futures_util::stream::SplitStream<WsStream>, session_id: u64) {
     let mut audio_chunks = 0usize;
-    let mut user_done_sent = false;
+    // tour de conversation en cours (session TALK)
+    let mut heard = String::new();
+    let mut said = String::new();
+    // un outil a été appelé : le tour clos juste après n'a encore rien dit
+    let mut tool_pending = false;
     while let Some(msg) = rx.next().await {
         let text = match msg {
             Ok(WsMessage::Text(t)) => t.to_string(),
@@ -356,26 +397,85 @@ async fn read_live(app: AppHandle, ch: Live, mut rx: futures_util::stream::Split
             continue;
         }
         let sc = &v["serverContent"];
-        let has_audio = sc["modelTurn"]["parts"]
-            .as_array()
-            .is_some_and(|p| p.iter().any(|x| x["inlineData"]["data"].is_string()));
         let turn_complete = sc["turnComplete"].as_bool() == Some(true);
 
         match ch {
-            Live::Listen => {
-                let activity = v["voiceActivity"]["type"].as_str().unwrap_or("");
+            Live::Talk => {
+                if let Some(h) = v["sessionResumptionUpdate"]["newHandle"].as_str() {
+                    *RESUME_HANDLE.lock().unwrap() = Some(h.to_string());
+                }
+                if v.get("goAway").is_some() {
+                    log_event(&app, "voice", "live conversation : le serveur va fermer, reprise à la prochaine parole");
+                }
+                // Outils : exécutés à part pour ne pas bloquer la lecture du flux
+                if let Some(calls) = v["toolCall"]["functionCalls"].as_array() {
+                    tool_pending = true;
+                    let calls = calls.clone();
+                    let app2 = app.clone();
+                    tokio::spawn(async move {
+                        let mut responses = Vec::new();
+                        for call in calls {
+                            let name = call["name"].as_str().unwrap_or("").to_string();
+                            let result = crate::tools::run(&app2, &name, &call["args"]).await;
+                            responses.push(serde_json::json!({
+                                "id": call["id"], "name": name, "response": {"result": result}
+                            }));
+                        }
+                        let msg = serde_json::json!({"toolResponse": {"functionResponses": responses}});
+                        if let Err(e) = send_on(Live::Talk, msg).await {
+                            log_event(&app2, "voice", &format!("live conversation : résultat d'outil non envoyé : {e}"));
+                        }
+                    });
+                    continue;
+                }
                 if let Some(tr) = sc["inputTranscription"]["text"].as_str() {
+                    heard.push_str(tr);
                     voice_emit(&app, "user-text", tr);
                 }
-                // Fin de phrase : le signal de détection de voix (le plus tôt),
-                // sinon le début (ou la fin) de la réponse du modèle, jamais jouée.
-                if (activity == "ACTIVITY_END" || has_audio || turn_complete) && !user_done_sent {
-                    user_done_sent = true;
-                    log_event(&app, "voice", "live écoute : fin de phrase de Julien");
-                    voice_emit(&app, "user-done", "");
+                if v["voiceActivity"]["type"].as_str() == Some("ACTIVITY_END") {
+                    log_event(&app, "voice", "live conversation : fin de phrase de Julien");
                 }
-                if turn_complete {
-                    user_done_sent = false;
+                if let Some(tr) = sc["outputTranscription"]["text"].as_str() {
+                    said.push_str(tr);
+                    voice_emit(&app, "talk-text", tr);
+                }
+                if let Some(parts) = sc["modelTurn"]["parts"].as_array() {
+                    for part in parts {
+                        if let Some(d) = part["inlineData"]["data"].as_str() {
+                            audio_chunks += 1;
+                            if audio_chunks == 1 {
+                                log_event(&app, "voice", "live conversation : premier son ✅");
+                            }
+                            voice_emit(&app, "talk-audio", d);
+                        }
+                    }
+                }
+                if sc["interrupted"].as_bool() == Some(true) {
+                    voice_emit(&app, "interrupted", "");
+                }
+                // Tour clos sans parole : juste après un appel d'outil, la réponse
+                // arrive dans le tour suivant (on garde ce que Julien a dit) ;
+                // sinon c'était du bruit ou un outil sans réponse : on oublie,
+                // pour ne pas coller ces mots à l'échange suivant.
+                if turn_complete && said.trim().is_empty() {
+                    if tool_pending {
+                        tool_pending = false;
+                    } else {
+                        heard.clear();
+                        audio_chunks = 0;
+                    }
+                }
+                if turn_complete && !said.trim().is_empty() {
+                    tool_pending = false;
+                    log_event(&app, "voice", &format!("live conversation : tour terminé ({audio_chunks} chunk(s) audio)"));
+                    let (user, oz) = (heard.trim().to_string(), said.trim().to_string());
+                    // le texte de l'échange, relisible dans le journal
+                    log_event(&app, "conversation", &format!("Julien : « {user} » — Oz : « {oz} »"));
+                    crate::brain::remember_exchange(&app, &user, &oz);
+                    let _ = app.emit("oz://voice-talk-turn", serde_json::json!({"user": user, "oz": oz}));
+                    heard.clear();
+                    said.clear();
+                    audio_chunks = 0;
                 }
             }
             Live::Speak => {
@@ -401,12 +501,16 @@ async fn read_live(app: AppHandle, ch: Live, mut rx: futures_util::stream::Split
             }
         }
     }
-    *ch.tx().lock().await = None;
-    if ch == Live::Listen {
-        MIC_PENDING.lock().await.clear();
-        voice_emit(&app, "disconnected", ""); // le micro s'arrête proprement
+    if ch.generation().load(std::sync::atomic::Ordering::SeqCst) != session_id {
+        return; // une session plus récente a pris la place : on n'y touche pas
     }
-    // la session de parole se rouvre toute seule à la prochaine réponse
+    *ch.tx().lock().await = None;
+    // Les deux sessions se rouvrent seules au besoin : la conversation au
+    // prochain morceau de micro (avec la poignée de reprise, sans perdre le
+    // fil), la parole à la prochaine réponse tapée.
+    if ch == Live::Talk {
+        MIC_PENDING.lock().await.clear();
+    }
 }
 
 /// Envoie un morceau de texte à lire (turnComplete=false) — streaming
@@ -443,37 +547,43 @@ pub(crate) async fn mic_chunk(app: AppHandle, data: String) -> Result<(), String
     if key.is_empty() {
         return Err("Aucune clé Gemini : ajoute-la dans le panneau, onglet Modèles".into());
     }
-    // Micro ouvert : on garde la session de PAROLE chaude, pour que la
-    // réponse d'Oz n'attende pas l'ouverture d'une connexion (~1 s).
-    // Au plus une tentative toutes les 30 s : si l'ouverture échoue, on ne
-    // la relance pas à chaque chunk (4 par seconde) avec une erreur à l'écran.
-    static LAST_WARM: Mutex<Option<std::time::Instant>> = Mutex::new(None);
-    let due = {
-        let mut last = LAST_WARM.lock().unwrap();
-        let due = last.is_none_or(|t| t.elapsed() >= std::time::Duration::from_secs(30));
-        if due {
-            *last = Some(std::time::Instant::now());
-        }
-        due
-    };
-    if due && SPEAK_TX.lock().await.is_none() {
-        let warm = app.clone();
-        let k = key.clone();
-        tokio::spawn(async move {
-            let _ = ensure_live_session(&warm, &k, Live::Speak).await;
-        });
-    }
     // session prête ? -> envoie direct. Sinon -> bufferise (zéro mot perdu).
     // Le verrou est relâché AVANT ensure_live_session, qui le reprend.
-    let session_open = LISTEN_TX.lock().await.is_some();
+    let session_open = TALK_TX.lock().await.is_some();
     if !session_open {
         MIC_PENDING.lock().await.push(data);
-        ensure_live_session(&app, &key, Live::Listen).await?;
+        ensure_live_session(&app, &key, Live::Talk).await?;
         return flush_mic_pending().await;
     }
     flush_mic_pending().await?; // rattrape d'éventuels chunks en attente
-    send_on(Live::Listen, serde_json::json!({
+    send_on(Live::Talk, serde_json::json!({
         "realtimeInput": {"audio": {"mimeType": "audio/pcm;rate=16000", "data": data}}
+    }))
+    .await
+}
+
+/// Ferme la conversation vocale et oublie sa poignée de reprise : la
+/// prochaine session repart avec les réglages du moment (langue).
+pub(crate) async fn reset_talk_session(app: &AppHandle) {
+    if let Some(mut tx) = TALK_TX.lock().await.take() {
+        let _ = tx.send(WsMessage::Close(None)).await;
+    }
+    *RESUME_HANDLE.lock().unwrap() = None;
+    MIC_PENDING.lock().await.clear();
+    log_event(app, "voice", "live conversation : réinitialisée (réglages modifiés)");
+}
+
+/// Consigne texte glissée dans la conversation vocale (initiative d'Oz) :
+/// le modèle y répond à voix haute, comme à une phrase de Julien.
+#[tauri::command]
+pub(crate) async fn live_prompt(app: AppHandle, text: String) -> Result<(), String> {
+    let key = gemini_key_from_state(&app).await;
+    if key.is_empty() {
+        return Err("Aucune clé Gemini : ajoute-la dans le panneau, onglet Modèles".into());
+    }
+    ensure_live_session(&app, &key, Live::Talk).await?;
+    send_on(Live::Talk, serde_json::json!({
+        "clientContent": {"turns": [{"role": "user", "parts": [{"text": text}]}], "turnComplete": true}
     }))
     .await
 }
@@ -485,10 +595,10 @@ pub(crate) async fn gemini_key_from_state(app: &AppHandle) -> String {
 #[tauri::command]
 pub(crate) async fn mic_end() -> Result<(), String> {
     flush_mic_pending().await?;
-    if LISTEN_TX.lock().await.is_none() {
+    if TALK_TX.lock().await.is_none() {
         return Ok(());
     }
-    send_on(Live::Listen, serde_json::json!({"realtimeInput": {"audioStreamEnd": true}})).await
+    send_on(Live::Talk, serde_json::json!({"realtimeInput": {"audioStreamEnd": true}})).await
 }
 
 /// Coupe la voix en cours (Échap) : lecteur Gemini TTS ; le flux Live est

@@ -15,8 +15,9 @@
       {
         "label": "oz",
         "title": "Oz",
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required",
         "width": 360,
-        "height": 480,
+        "height": 720,
         "transparent": true,
         "decorations": false,
         "alwaysOnTop": true,
@@ -28,6 +29,7 @@
       {
         "label": "panel",
         "title": "Oz — Panneau de contrôle",
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required",
         "url": "panel.html",
         "width": 470,
         "height": 760,

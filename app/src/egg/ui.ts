@@ -1,3 +1,4 @@
+import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { state } from "./state";
 
 // ── Éléments du DOM + bulle de dialogue ──────────────────────────────
@@ -5,9 +6,6 @@ import { state } from "./state";
 export const stage = document.getElementById("stage")!;
 export const robot = document.getElementById("robot")!;
 export const bubble = document.getElementById("speech-bubble")!;
-export const chatBar = document.getElementById("chat-bar")!;
-export const chatInput = document.getElementById("chat-input") as HTMLInputElement;
-export const micBtn = document.getElementById("chat-mic")!;
 export const accessBadge = document.getElementById("access-badge")!;
 export const accessCard = document.getElementById("access-card")!;
 export const eyeLeft = document.getElementById("eye-left")!;
@@ -37,6 +35,7 @@ export function showBubble(
   bubble.textContent = shortText(text);
   bubble.classList.remove("hidden");
   bubble.scrollTop = bubble.scrollHeight; // suit le texte qui défile
+  void placeBubble();
   if (opts.ttl) hideBubbleLater(opts.ttl);
   else if (opts.sticky) hideBubbleLater(6000 + text.length * 40); // filet de sécurité
 }
@@ -60,11 +59,35 @@ export function say(text: string, duration = 4000): void {
   }, Math.min(duration, 2500));
 }
 
-/** L'état "réfléchit" : bulle à points animés + barre de chat verrouillée. */
+/** Transcription de la conversation vocale : seulement si le réglage l'autorise. */
+export function showTranscript(text: string, opts: { ttl?: number; sticky?: boolean } = {}): void {
+  if (state.showTranscript) showBubble(text, opts);
+}
+
+// ── Bulle au-dessus de l'œuf, ou en dessous quand le haut de l'écran
+// la couperait (l'œuf peut monter jusqu'au bord). Vérifié au plus toutes
+// les 400 ms : la bulle se met à jour à chaque mot transcrit.
+let lastPlaced = 0;
+export async function placeBubble(force = false): Promise<void> {
+  const now = performance.now();
+  if (!force && now - lastPlaced < 400) return;
+  lastPlaced = now;
+  try {
+    const [pos, mon] = await Promise.all([getCurrentWindow().outerPosition(), currentMonitor()]);
+    const scale = mon?.scaleFactor ?? 1;
+    const monY = mon?.position?.y ?? 0;
+    const top = pos.y + (robot.getBoundingClientRect().top - 16 - bubble.offsetHeight) * scale;
+    const below = top < monY + 4;
+    bubble.classList.toggle("below", below);
+    accessCard.classList.toggle("below", below);
+  } catch {
+    /* la bulle garde sa place */
+  }
+}
+
+/** L'état "réfléchit" : bulle à points animés. */
 export function setThinking(on: boolean): void {
   state.thinking = on;
-  chatBar.classList.toggle("busy", on);
-  chatInput.disabled = on;
   if (on) {
     showBubble("", { typing: true });
   }

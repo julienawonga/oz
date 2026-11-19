@@ -47,8 +47,8 @@ pub(crate) async fn look_at(
         return Err(format!("J'ai besoin de ton accord pour regarder {}.", friendly_name(&w.process)));
     }
 
-    let png = w.capture_png()?;
-    let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
+    let jpg = w.capture_jpeg()?;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&jpg);
     log_event(&app, "vision", &format!("a regardé « {} »", w.title));
 
     let cfg = state.config.lock().unwrap().clone();
@@ -59,22 +59,39 @@ pub(crate) async fn look_at(
             "contents": [{
                 "role": "user",
                 "parts": [
-                    {"text": format!("{} Réponds en français, très brièvement.", question)},
-                    {"inlineData": {"mimeType": "image/png", "data": b64}}
+                    {"text": format!("{} Réponds en {}, très brièvement, en texte simple sans markdown.", question, crate::prefs::language_name(&app))},
+                    {"inlineData": {"mimeType": "image/jpeg", "data": b64}}
                 ]
-            }]
+            }],
+            // lecture d'écran : pas besoin de réfléchir longtemps
+            "generationConfig": {"thinkingConfig": {"thinkingLevel": "low"}}
         });
         let url = format!(
             "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
             cfg.vision_model
         );
-        let resp = http_client()
+        let mut body = body;
+        let mut resp = http_client()
             .post(&url)
             .header("x-goog-api-key", &cfg.api_key)
             .json(&body)
             .send()
             .await
             .map_err(|e| format!("Gemini vision injoignable : {e}"))?;
+        if resp.status() == reqwest::StatusCode::BAD_REQUEST {
+            // modèle vision qui refuse le niveau de réflexion : on s'en passe
+            body.as_object_mut().unwrap().remove("generationConfig");
+            resp = http_client()
+                .post(&url)
+                .header("x-goog-api-key", &cfg.api_key)
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| format!("Gemini vision injoignable : {e}"))?;
+        }
+        if !resp.status().is_success() {
+            return Err(crate::brain::http_error("Gemini vision", resp).await);
+        }
         let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
         let desc = json["candidates"][0]["content"]["parts"][0]["text"]
             .as_str()
@@ -87,7 +104,7 @@ pub(crate) async fn look_at(
     // ── Ollama vision (moondream) ──
     let body = serde_json::json!({
         "model": cfg.vision_model,
-        "prompt": format!("{} Réponds en français, très brièvement.", question),
+        "prompt": format!("{} Réponds en {}, très brièvement, en texte simple sans markdown.", question, crate::prefs::language_name(&app)),
         "images": [b64],
         "stream": false
     });

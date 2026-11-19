@@ -4,6 +4,7 @@ import { renderChat } from "./panel/chat";
 import { renderJournal } from "./panel/journal";
 import { renderMemory } from "./panel/memory";
 import { renderPerms } from "./panel/perms";
+import { renderSettings } from "./panel/settings";
 import { content, esc, view } from "./panel/util";
 import { renderZones } from "./panel/zones";
 
@@ -32,6 +33,7 @@ async function renderAsync(): Promise<void> {
   if (view.tab === "perms") return renderPerms();
   if (view.tab === "zones") return renderZones();
   if (view.tab === "brain") return renderBrain();
+  if (view.tab === "settings") return renderSettings();
   if (view.tab === "memory") return renderMemory();
   if (view.tab === "journal") return renderJournal();
 }

@@ -43,14 +43,15 @@ It understands what you say **with a real language model, no keywords**: "what's
 
 | | |
 |---|---|
-| 🎙️ **Real-time voice** | Mic streamed to Gemini Live, live transcription in the speech bubble, answer read out loud. A new question cuts off the previous answer. |
+| 🎙️ **Voice first** | One Gemini Live session hears you, calls tools and answers out loud: first sound in under a second. Click the egg or press a global hotkey to talk; say "that's all" and it stops listening. |
+| 💬 **Starts the conversation** | When you come back, in the morning or after a long stretch, Gemini decides whether Oz has something worth saying. It calls you by name, or raises its hand if you look busy. Says less when ignored; "not now" mutes it. |
 | 🧠 **LLM understanding** | Gemini understands the request however it's phrased and calls tools (function calling). No keyword router. |
 | 👀 **Vision** | Oz captures an allowed window and describes it, or helps with what you're doing. |
 | 🪟 **Window actions** | List, close, bring to front, always behind the permission broker. |
-| 🐣 **A living egg** | Animations, poses (sitting, standing), strolls, drag and drop, no-go zones on the screen. |
-| 🗂️ **Memory** | Lasting facts drawn from conversations, notes on observed windows, deletable one by one. |
+| 🐣 **A living egg** | Animations, poses, strolls, tricks (zigzag, circles, spins, flips, dance), named places ("go home"), reaches every screen edge, no-go zones. |
+| 🗂️ **Memory** | Lasting facts drawn from spoken and written conversations, notes on observed windows, deletable one by one. |
 | 🕒 **Context** | Local time injected into every message. |
-| 🎛️ **Admin panel** | Chat, permissions (with live list of open windows), zones, models, memory, activity log. |
+| 🎛️ **Admin panel** | Chat, permissions (with live list of open windows), zones, models, settings (language, mic hotkey, transcript, initiative), memory, activity log. |
 
 ### Tools available to the brain
 
@@ -61,9 +62,12 @@ It understands what you say **with a real language model, no keywords**: "what's
 | `fermer_fenetre` | Closes a window | *Act* |
 | `mettre_au_premier_plan` | Brings a window to the front | *Act* |
 | `se_deplacer` · `changer_pose` | Moves the egg, sits it down or stands it up | — |
+| `faire_une_figure` | Zigzag, circle, figure eight, wave, spiral, spin, flip, turn around, jump, dance; optionally on the way somewhere | — |
+| `lieux` | Names the current spot ("home") and goes back to it | — |
 | `zone_interdite` | Forbids or allows the spot where Oz stands | — |
+| `finir_conversation` · `pas_maintenant` | Ends the conversation (mic off); mutes Oz's own initiatives for a while | — |
 
-Tool names are in French: Oz talks to its user in French.
+Tool names are in French. Oz's language (French by default) is chosen in the *Settings* tab.
 
 ## 🔐 The trust contract
 
@@ -104,19 +108,20 @@ On first launch, open the admin panel, **Models** tab, pick the brain and enter 
 ## 🏗️ Architecture
 
 ```
-  mic ──► Gemini Live (listen) ──► transcription
-                                        │
-                                        ▼
-  egg (TS) ◄── streamed answer ◄── Gemini brain ──► tools ──► broker (Rust) ──► Win32
-     │                                                              ▲
-     └──► Gemini Live (speak) ──► Oz's voice           permissions ─┘
+  mic ──► Gemini Live (conversation) ──► Oz's voice ──► egg (TS)
+                    │
+                    ▼
+                  tools ──► broker (Rust) ──► Win32
+                    ▲            ▲
+  initiative ───────┘   permissions
+  (signals + Gemini judge)
 ```
 
 ```
 app/
-├── src/egg/        the egg: window, bubble, input, voice, movement, access requests
+├── src/egg/        the egg: window, bubble, voice, initiative, movement, tricks, access requests
 ├── src/panel/      the admin panel, one module per tab
-└── src-tauri/src/  Rust: broker, brain, tools, voice, vision, memory, zones, journal
+└── src-tauri/src/  Rust: broker, brain, tools, voice, initiative, prefs, places, vision, memory, zones, journal
 docs/               architecture, permissions, voice, development
 ```
 
@@ -129,13 +134,17 @@ cd .. && npx tsc --noEmit          # front-end type check
 
 ## 🗺️ Roadmap
 
-- [x] End-to-end real-time voice (two Gemini Live sessions)
+- [x] End-to-end real-time voice (one Gemini Live session, tools included)
 - [x] Gemini tools instead of keywords
+- [x] Oz starts the conversation (signals, Gemini judge, call by name or raise its hand)
+- [x] Global mic hotkey, language setting, tricks and named places
+- [ ] "Watch with me": live view of an allowed window in the voice session
+- [ ] Interrupt Oz by voice
 - [x] Per-window permissions, sanctuaries, activity log
 - [ ] Movement modes: free roam, fixed position, behind windows, docked to an edge, focus
 - [ ] Tools for local models (Ollama)
 - [ ] Egg customization (colors, textures)
-- [ ] Push-to-talk (global hotkey) and wake word
+- [ ] Wake word
 
 ## 📚 Documentation
 

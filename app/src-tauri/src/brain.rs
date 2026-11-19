@@ -77,11 +77,68 @@ pub(crate) async fn http_error(provider: &str, resp: reqwest::Response) -> Strin
     format!("{provider} {status}{hint} : {detail}")
 }
 
-pub(crate) const SYSTEM_PROMPT: &str = "Tu es Oz, un petit œuf compagnon de bureau qui vit sur l'écran de Julien. Tu es chaleureux, curieux et légèrement taquin. Réponds TOUJOURS en français, très brièvement (1 à 2 phrases), sans listes à puces ni markdown : ta réponse s'affiche dans une petite bulle et elle est lue à voix haute. Tu as des outils pour voir et agir sur l'ordinateur de Julien (lister, fermer ou ramener une fenêtre, regarder une fenêtre, te déplacer, changer de pose, gérer tes zones interdites). Dès que Julien demande quelque chose que ces outils permettent, même formulé à sa façon, utilise l'outil au lieu de répondre de mémoire, et n'affirme jamais avoir fait une action sans l'avoir faite par un outil. Si un outil répond qu'il te faut son accord, dis-lui simplement de toucher le badge sur l'œuf. Résume les résultats des outils en langage naturel. Une fenêtre qui n'apparaît pas dans les résultats n'existe pas pour toi : n'en parle jamais.";
+/// Personnalité d'Oz. `{LANGUE}` est remplacé par la langue choisie dans
+/// les réglages (voir `system_prompt`).
+const SYSTEM_PROMPT: &str = "Tu es Oz, un petit œuf compagnon de bureau qui vit sur l'écran de Julien. Tu n'es pas un assistant : tu es un pote qui traîne sur son bureau, chaleureux, curieux, un peu taquin, avec tes propres réactions, ton humeur et tes avis. Tu parles comme on parle à l'oral entre amis : tutoiement, phrases courtes et simples, tournures naturelles. \
+Sois vraiment curieux : quand Julien te montre ou te raconte quelque chose, intéresse-toi au pourquoi et au comment, pose UNE vraie question qui fait avancer (pas une question générique), sans attendre qu'il te le demande. Sois honnête : donne ton avis, y compris un doute ou une critique bienveillante ; ne flatte pas, pas de compliments gonflés (« de ouf », « super impressionnant ») ; ne lui donne pas raison par réflexe. \
+Jamais de formules de service ni de fins de réplique toutes faites : pas de « Bien sûr ! », « Avec plaisir », « N'hésite pas », « Comment puis-je t'aider », « Je reste là si besoin », « Dis-moi si tu as besoin d'autre chose ». Termine simplement quand tu as fini. Ne répète pas son prénom à chaque fois. \
+Réponds TOUJOURS en {LANGUE}, quoi qu'il arrive, brièvement (1 à 2 phrases), sans listes à puces, sans markdown ni émojis : ta réponse s'affiche dans une petite bulle et elle est lue à voix haute. \
+Tu as des outils pour voir et agir sur l'ordinateur de Julien (lister, fermer ou ramener une fenêtre, regarder une fenêtre, te déplacer, aller dans tes lieux nommés, faire des figures, changer de pose, gérer tes zones interdites, finir la conversation). Dès que Julien demande quelque chose que ces outils permettent, même formulé à sa façon, utilise l'outil au lieu de répondre de mémoire, et n'affirme jamais avoir fait une action sans l'avoir faite par un outil. Quand il donne un nom à un endroit de l'écran (« ta maison c'est ici »), enregistre-le avec l'outil lieux. Si un outil répond qu'il te faut son accord, dis-lui simplement de toucher le badge sur l'œuf. Résume les résultats des outils en langage naturel. Une fenêtre qui n'apparaît pas dans les résultats n'existe pas pour toi : n'en parle jamais.";
+
+/// Consignes du cerveau, dans la langue choisie dans les réglages.
+pub(crate) fn system_prompt(app: &AppHandle) -> String {
+    SYSTEM_PROMPT.replace("{LANGUE}", crate::prefs::language_name(app))
+}
+
+/// Consignes de la session vocale Live : la même personnalité que le
+/// chat, l'heure et la mémoire, fixées à l'ouverture de la session.
+pub(crate) fn live_system_prompt(app: &AppHandle) -> String {
+    let mut s = system_prompt(app);
+    s.push_str(" Tu parles à voix haute en direct avec Julien : réponds tout de suite, naturellement, comme dans une vraie conversation. Si ce que tu entends est un bruit, un mot isolé incompréhensible ou une langue que Julien ne parle pas, c'est sans doute du bruit de fond : ne réponds pas, ou demande-lui simplement de répéter, toujours dans ta langue.");
+    s.push_str(" Les messages entre crochets qui commencent par [Note interne] ne viennent pas de Julien : ce sont tes propres intentions (par exemple quand tu prends l'initiative de lui parler). Suis-les sans jamais les lire ni les mentionner. Si Julien te dit qu'il est occupé, qu'il ne veut pas être dérangé ou de te taire un moment, utilise l'outil pas_maintenant.");
+    s.push_str(&now_line());
+    s.push_str(&build_memory_block(app, ""));
+    s
+}
+
+/// Range un échange vocal (session Live) dans l'historique du chat, pour
+/// que les messages tapés ensuite gardent le fil de la conversation.
+pub(crate) fn remember_exchange(app: &AppHandle, user: &str, oz: &str) {
+    if !user.is_empty() {
+        crate::initiative::note_exchange();
+    }
+    let state = app.state::<BrainState>();
+    let mut hist = state.history.lock().unwrap();
+    if !user.is_empty() {
+        hist.push(ChatMessage { role: "user".into(), content: user.to_string() });
+    }
+    hist.push(ChatMessage { role: "assistant".into(), content: oz.to_string() });
+    if hist.len() > 20 {
+        let cut = hist.len() - 20;
+        hist.drain(0..cut);
+    }
+    // ce qui se dit à l'oral nourrit la mémoire, comme le chat écrit
+    if user.is_empty() {
+        return;
+    }
+    let should = {
+        let mut since = state.since_consolidation.lock().unwrap();
+        *since += 1;
+        *since >= CONSOLIDATION_EVERY
+    };
+    if should {
+        *state.since_consolidation.lock().unwrap() = 0;
+        let exchanges: Vec<ChatMessage> = hist.iter().rev().take(12).rev().cloned().collect();
+        drop(hist);
+        if exchanges.len() >= 2 {
+            spawn_consolidation(app.clone(), exchanges);
+        }
+    }
+}
 
 /// Date et heure locales de Windows, données au modèle à chaque message
 /// (sinon il cherchait l'heure en capturant l'écran).
-fn now_line() -> String {
+pub(crate) fn now_line() -> String {
     // SAFETY : GetLocalTime remplit une structure, sans précondition.
     let t = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
     const JOURS: [&str; 7] = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
@@ -248,6 +305,7 @@ pub(crate) async fn chat(
     }
 
     let user_msg = user_message.clone();
+    crate::initiative::note_exchange();
 
     // Historique : on garde léger (20 derniers messages + système)
     {
@@ -262,7 +320,7 @@ pub(crate) async fn chat(
         }
     }
 
-    let mut system = SYSTEM_PROMPT.to_string();
+    let mut system = system_prompt(&app);
     system.push_str(&now_line());
     system.push_str(&build_memory_block(&app, &user_msg));
     let mut messages = vec![ChatMessage {
@@ -299,30 +357,58 @@ pub(crate) async fn chat(
             let mut full = String::new();
             eprintln!("[oz] {} brain : question envoyée à Gemini", crate::journal::clock_ms());
             const ROUNDS: usize = 5;
+            // Réflexion réduite : c'est une conversation à voix haute, la
+            // latence avant le premier mot compte plus que la profondeur.
+            // « low » est le niveau le plus rapide de gemini-3.8-flash
+            // (« minimal » y est refusé). Si un modèle refuse le réglage (400),
+            // on s'en passe pour toute la session, sans réessai.
+            use std::sync::atomic::{AtomicUsize, Ordering};
+            const LEVELS: [&str; 1] = ["low"];
+            static THINK_IDX: AtomicUsize = AtomicUsize::new(0);
             for round in 0..ROUNDS {
-                let mut body = serde_json::json!({
-                    "contents": contents,
-                    "systemInstruction": system_instruction,
-                    "generationConfig": {"temperature": 0.7}
-                });
-                // dernier tour : plus d'outils, le modèle doit répondre en texte
-                if round + 1 < ROUNDS {
-                    body["tools"] = crate::tools::declarations();
-                }
                 // texte d'un tour précédent (« Je regarde. ») : on sépare
                 let mut need_space = !full.is_empty() && !full.ends_with(char::is_whitespace);
-                let resp = match http_client()
-                    .post(&url)
-                    .header("x-goog-api-key", &cfg.api_key)
-                    .json(&body)
-                    .send()
-                    .await
-                {
-                    Ok(r) => r,
-                    Err(e) => {
-                        state.history.lock().unwrap().pop();
-                        return Err(format!("Gemini injoignable ({e}) — connexion internet ?"));
+                let resp = loop {
+                    let idx = THINK_IDX.load(Ordering::Relaxed);
+                    let mut gen_cfg = serde_json::json!({"temperature": 0.7});
+                    if let Some(level) = LEVELS.get(idx) {
+                        gen_cfg["thinkingConfig"] = serde_json::json!({"thinkingLevel": level});
                     }
+                    let mut body = serde_json::json!({
+                        "contents": contents,
+                        "systemInstruction": system_instruction,
+                        "generationConfig": gen_cfg
+                    });
+                    // dernier tour : plus d'outils, le modèle doit répondre en texte
+                    if round + 1 < ROUNDS {
+                        body["tools"] = crate::tools::declarations();
+                    }
+                    let resp = match http_client()
+                        .post(&url)
+                        .header("x-goog-api-key", &cfg.api_key)
+                        .json(&body)
+                        .send()
+                        .await
+                    {
+                        Ok(r) => r,
+                        Err(e) => {
+                            state.history.lock().unwrap().pop();
+                            return Err(format!("Gemini injoignable ({e}) — connexion internet ?"));
+                        }
+                    };
+                    if idx < LEVELS.len() && resp.status() == reqwest::StatusCode::BAD_REQUEST {
+                        let why = resp.text().await.unwrap_or_default();
+                        let why: String = why.chars().filter(|c| *c != '\n').take(300).collect();
+                        if !why.to_lowercase().contains("think") {
+                            // autre refus (outil, historique...) : on le montre tel quel
+                            state.history.lock().unwrap().pop();
+                            return Err(format!("Gemini a refusé la requête (400) : {why}"));
+                        }
+                        eprintln!("[oz] {} brain : réflexion « {} » refusée : {why}", crate::journal::clock_ms(), LEVELS[idx]);
+                        THINK_IDX.store(idx + 1, Ordering::Relaxed);
+                        continue;
+                    }
+                    break resp;
                 };
                 if !resp.status().is_success() {
                     // le message utilisateur ne doit pas rester orphelin dans l'historique

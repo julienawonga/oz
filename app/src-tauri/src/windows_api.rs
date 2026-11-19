@@ -14,7 +14,7 @@ use windows::Win32::System::Threading::{
     PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetForegroundWindow, GetWindow, GetWindowRect, GW_HWNDNEXT, GetWindowTextLengthW, GetWindowTextW,
+    EnumWindows, GetForegroundWindow, IsIconic, GetWindow, GetWindowRect, GW_HWNDNEXT, GetWindowTextLengthW, GetWindowTextW,
     GetWindowThreadProcessId, IsWindowVisible, PostMessageW, SetForegroundWindow, ShowWindow,
     SW_RESTORE, WM_CLOSE,
 };
@@ -222,40 +222,52 @@ pub(crate) fn list_windows() -> Result<Vec<AppWindow>, String> {
         .collect())
 }
 
-pub(crate) fn capture_window_png(hwnd: HWND) -> Result<Vec<u8>, String> {
+/// Capture JPEG de la fenêtre, réduite à `MAX_WIDTH` px de large : assez pour
+/// lire l'écran, bien plus léger à encoder et à envoyer qu'un PNG plein format.
+pub fn capture_window_jpeg(hwnd: HWND) -> Result<Vec<u8>, String> {
+    const MAX_WIDTH: u32 = 1280;
     unsafe {
         let mut rc = windows::Win32::Foundation::RECT::default();
-        GetWindowRect(hwnd, &mut rc).map_err(|e| e.to_string())?;
-        let w = (rc.right - rc.left).max(1);
-        let h = (rc.bottom - rc.top).max(1);
+        GetWindowRect(hwnd, &mut rc).map_err(|e| format!("taille de la fenêtre : {e}"))?;
+        let w = rc.right - rc.left;
+        let h = rc.bottom - rc.top;
+        if IsIconic(hwnd).as_bool() || w <= 1 || h <= 1 || rc.left <= -30000 {
+            return Err("la fenêtre est réduite dans la barre des tâches : il faut la ramener au premier plan pour la voir".into());
+        }
 
         let hdc_screen = GetDC(None);
+        if hdc_screen.is_invalid() {
+            return Err("écran inaccessible".into());
+        }
         let hdc_mem = CreateCompatibleDC(Some(hdc_screen));
         let mut bi = BITMAPINFO::default();
+        bi.bmiHeader.biSize = std::mem::size_of::<windows::Win32::Graphics::Gdi::BITMAPINFOHEADER>() as u32;
         bi.bmiHeader.biWidth = w;
         bi.bmiHeader.biHeight = -h; // top-down
         bi.bmiHeader.biPlanes = 1;
         bi.bmiHeader.biBitCount = 32;
         bi.bmiHeader.biCompression = BI_RGB.0;
         let mut bits: *mut core::ffi::c_void = std::ptr::null_mut();
-        let hbm = CreateDIBSection(
-            Some(hdc_mem),
-            &bi,
-            DIB_RGB_COLORS,
-            &mut bits,
-            None,
-            0,
-        )
-        .map_err(|e| e.to_string())?;
+        let hbm = match CreateDIBSection(Some(hdc_mem), &bi, DIB_RGB_COLORS, &mut bits, None, 0) {
+            Ok(b) if !bits.is_null() => b,
+            other => {
+                if let Ok(b) = other {
+                    let _ = DeleteObject(b.into());
+                }
+                let _ = DeleteDC(hdc_mem);
+                ReleaseDC(None, hdc_screen);
+                return Err(format!("image mémoire {w}x{h} impossible"));
+            }
+        };
         let old = SelectObject(hdc_mem, hbm.into());
         let ok = PrintWindow(hwnd, hdc_mem, PW_RENDERFULLCONTENT).as_bool();
 
-        // BGRA → RGBA
-        let len = (w * h * 4) as usize;
+        // BGRA → RGB (l'alpha de PrintWindow n'est pas fiable)
+        let len = (w as usize) * (h as usize) * 4;
         let slice = std::slice::from_raw_parts(bits as *const u8, len);
-        let mut rgba = Vec::with_capacity(len);
+        let mut rgb = Vec::with_capacity(len / 4 * 3);
         for px in slice.chunks_exact(4) {
-            rgba.extend_from_slice(&[px[2], px[1], px[0], px[3]]);
+            rgb.extend_from_slice(&[px[2], px[1], px[0]]);
         }
 
         SelectObject(hdc_mem, old);
@@ -266,13 +278,16 @@ pub(crate) fn capture_window_png(hwnd: HWND) -> Result<Vec<u8>, String> {
         if !ok {
             return Err("PrintWindow a échoué".into());
         }
-        let img = image::RgbaImage::from_raw(w as u32, h as u32, rgba)
-            .ok_or("image invalide")?;
-        let mut png: Vec<u8> = Vec::new();
-        image::DynamicImage::ImageRgba8(img)
-            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        let mut img = image::RgbImage::from_raw(w as u32, h as u32, rgb).ok_or("image invalide")?;
+        if img.width() > MAX_WIDTH {
+            let nh = (img.height() as u64 * MAX_WIDTH as u64 / img.width() as u64).max(1) as u32;
+            img = image::imageops::resize(&img, MAX_WIDTH, nh, image::imageops::FilterType::Triangle);
+        }
+        let mut jpg: Vec<u8> = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpg, 80)
+            .encode_image(&img)
             .map_err(|e| e.to_string())?;
-        Ok(png)
+        Ok(jpg)
     }
 }
 
@@ -299,7 +314,7 @@ pub(crate) fn active_window(windows: Vec<WindowHandle>) -> Option<WindowHandle> 
 }
 
 impl WindowHandle {
-    fn raw(&self) -> HWND {
+    pub fn raw(&self) -> HWND {
         HWND(self.hwnd as *mut core::ffi::c_void)
     }
 
@@ -318,9 +333,9 @@ impl WindowHandle {
         }
     }
 
-    /// Capture PNG de la fenêtre.
-    pub(crate) fn capture_png(&self) -> Result<Vec<u8>, String> {
-        capture_window_png(self.raw())
+    /// Capture JPEG réduite de la fenêtre.
+    pub(crate) fn capture_jpeg(&self) -> Result<Vec<u8>, String> {
+        capture_window_jpeg(self.raw())
     }
 }
 

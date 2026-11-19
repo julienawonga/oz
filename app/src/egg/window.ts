@@ -1,9 +1,9 @@
 import { getCurrentWindow, currentMonitor, PhysicalPosition } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
-import { toggleChatBar } from "./chatbar";
-import { glideTo, overlapsZone } from "./motion";
+import { onEggClick } from "./initiative";
+import { eggBounds, glideTo, overlapsZone } from "./motion";
 import { state } from "./state";
-import { accessCard, bubble, chatBar, eyeLeft, eyeRight, robot, say, stage } from "./ui";
+import { accessCard, bubble, eyeLeft, eyeRight, placeBubble, robot, say, stage } from "./ui";
 
 // ── Fenêtre transparente : drag, click-through, regard, clignement ───
 
@@ -63,21 +63,20 @@ window.addEventListener("pointerup", (e) => {
   state.dragging = false;
   dragStart = null;
   lastMove = null;
-  // simple clic (peu de mouvement, bref) -> ouvre / ferme la barre de saisie
+  // simple clic (peu de mouvement, bref) -> il t'écoute (ou répond à sa main levée)
   const moved = Math.hypot(e.screenX - downAt.x, e.screenY - downAt.y);
   if (moved < 5 && performance.now() - downAt.t < 350) {
-    toggleChatBar();
+    onEggClick();
     return;
   }
+  void placeBubble(true);
   // 🚫 Déposé dans une zone interdite ? Il s'échappe tout seul
   void (async () => {
-    const win = getCurrentWindow();
-    const [pos, size] = await Promise.all([win.outerPosition(), win.outerSize()]);
-    const bad = overlapsZone(pos.x, pos.y, size.width, size.height);
-    if (bad) {
-      say("🚫 C'est ma zone interdite, je ne reste pas là !", 4000);
-      await glideTo(); // pas de cible → reste sur place MAIS cherche la place libre
-      void glideTo(pos.x + size.width + 20, pos.y); // puis dégage horizontalement
+    const b = await eggBounds();
+    const egg = b.egg(b.pos.x, b.pos.y);
+    if (overlapsZone(egg.x, egg.y, egg.w, egg.h)) {
+      say("C'est ma zone interdite, je ne reste pas là !", 4000);
+      await glideTo(); // reste sur place MAIS cherche la place libre la plus proche
     }
   })();
 });
@@ -89,17 +88,11 @@ async function hitTestLoop(): Promise<void> {
   if (state.dragging) return;
   try {
     const win = getCurrentWindow();
-    const [cursor, outer, mon] = await Promise.all([
-      invoke<{ x: number; y: number }>("get_cursor_pos"),
-      win.outerPosition(),
-      currentMonitor(),
-    ]);
-    const scale = mon?.scaleFactor ?? 1;
-    const lx = (cursor.x - outer.x) / scale;
-    const ly = (cursor.y - outer.y) / scale;
+    // un seul appel au Rust : curseur déjà ramené à la fenêtre, en pixels logiques
+    const { x: lx, y: ly } = await invoke<{ x: number; y: number }>("cursor_in_window");
 
-    // Zone active : l'œuf + la bulle + la barre de chat + la carte d'accès
-    const overUi = [robot, bubble, chatBar, accessCard].some((el) => {
+    // Zone active : l'œuf + la bulle + la carte d'accès
+    const overUi = [robot, bubble, accessCard].some((el) => {
       // un élément masqué ne doit pas bloquer les clics derrière lui
       if (el.classList.contains("hidden")) return false;
       const r = el.getBoundingClientRect();
@@ -116,7 +109,7 @@ async function hitTestLoop(): Promise<void> {
     /* on réessaie au prochain tick */
   }
 }
-setInterval(hitTestLoop, 60);
+setInterval(hitTestLoop, 80);
 
 // Pupilles qui suivent le curseur
 function updatePupils(lx: number, ly: number): void {

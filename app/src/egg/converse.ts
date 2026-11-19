@@ -1,35 +1,12 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
 import { claimVoice, markVoiceClosed, READ_ALOUD, releaseVoice, stopVoice } from "./audio";
-import { hideChatBar } from "./chatbar";
 import "./intents"; // exécute les actions du corps demandées par le cerveau
 import { state } from "./state";
-import { chatBar, chatInput, say, setThinking, showBubble } from "./ui";
+import { say, setThinking, showBubble } from "./ui";
 
-// ── Conversation : intentions locales, sinon cerveau en streaming ────
-
-async function sendMessage(): Promise<void> {
-  const text = chatInput.value.trim();
-  if (!text || state.thinking) return;
-  chatInput.value = "";
-  hideChatBar();
-  await converse(text);
-}
-
-chatInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") void sendMessage();
-});
-document.getElementById("chat-send")!.addEventListener("click", (e) => {
-  e.stopPropagation();
-  void sendMessage();
-});
-chatBar.addEventListener("pointerdown", (e) => e.stopPropagation());
-
-// La parole de Julien (micro) passe par le même chemin que le texte :
-// intentions locales, broker de permissions, mémoire, puis cerveau.
-state.onUserSpeech = (text) => {
-  void converse(text);
-};
+// ── Conversation texte : cerveau en streaming, lu par la voix Live ──
+// (messages du panneau, reprise après une permission accordée)
 
 // Numéro de la question en cours : une nouvelle question rend la précédente
 // obsolète, ses phrases restantes ne doivent plus partir à la voix.
