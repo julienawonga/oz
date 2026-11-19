@@ -275,7 +275,7 @@ pub(crate) fn execute_action(broker: &BrokerState, app: &AppHandle, action: &str
             } else {
                 w.focus();
                 log_event(app, "action", &format!("mis au premier plan : « {} »", w.title));
-                format!("« {} » est au premier plan 🎯", w.title)
+                format!("« {} » est au premier plan", w.title)
             }
         }
         _ => "Action inconnue".into(),

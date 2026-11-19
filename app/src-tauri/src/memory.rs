@@ -126,8 +126,10 @@ Extrais : 1) les faits durables sur Julien (préférences, projets, personnes, d
 2) un épisode : une phrase résumant ce qui s'est passé dans cette conversation. \
 NE RETIENS JAMAIS l'état opérationnel de l'assistant (soldes, crédits, erreurs d'outils, limites, tokens), \
 ni le contenu des réponses de l'assistant, ni ce que la mémoire contient ou non. \
-N'extrais que ce que Julien a dit ou décidé. Réponds UNIQUEMENT en JSON : \
-{\"facts\":[{\"subject\":\"...\",\"content\":\"...\"}],\"episode\":\"...\"}";
+N'extrais que ce que Julien a dit ou décidé lui-même : ce qu'Oz a lu sur un écran ou dans la conversation de quelqu'un d'autre n'est pas un fait sur Julien, sauf s'il le confirme. \
+Tu reçois aussi les faits déjà connus, numérotés. Si un fait nouveau contredit, corrige ou met à jour un fait connu, mets son numéro dans \"replaces\" : l'ancien sera effacé. Ne répète pas un fait déjà connu. \
+Réponds UNIQUEMENT en JSON : \
+{\"facts\":[{\"subject\":\"...\",\"content\":\"...\",\"replaces\":[]}],\"episode\":\"...\"}";
 
 /// Consolidation : distille les N derniers échanges en faits + épisode.
 /// Lancée en tâche de fond — ne bloque jamais une réponse.
@@ -137,7 +139,20 @@ pub(crate) fn spawn_consolidation(app: AppHandle, exchanges: Vec<ChatMessage>) {
             let brain = app.state::<BrainState>();
             brain.config.lock().unwrap().clone()
         };
-        let convo = serde_json::to_string(&exchanges).unwrap_or_default();
+        // les faits connus, numérotés : le modèle signale ceux qu'un fait
+        // nouveau contredit (sinon deux versions contradictoires s'empilaient)
+        let mut facts = load_facts(&app);
+        let known: Vec<String> = facts
+            .iter()
+            .enumerate()
+            .skip(facts.len().saturating_sub(80))
+            .map(|(i, f)| format!("{i}. {}", f.content))
+            .collect();
+        let convo = format!(
+            "Faits connus :\n{}\n\nConversation récente :\n{}",
+            if known.is_empty() { "aucun".into() } else { known.join("\n") },
+            serde_json::to_string(&exchanges).unwrap_or_default()
+        );
         let text = match cfg.provider.as_str() {
             "gemini" => consolidate_gemini(&cfg, &convo).await,
             _ => consolidate_ollama(&cfg, &convo).await,
@@ -154,9 +169,23 @@ pub(crate) fn spawn_consolidation(app: AppHandle, exchanges: Vec<ChatMessage>) {
             return;
         };
 
-        // Faits : filtres Waku puis écriture
-        let mut facts = load_facts(&app);
+        // Faits : contradictions retirées, filtres Waku, puis écriture
         let mut kept = 0;
+        let mut replaced: Vec<usize> = Vec::new();
+        if let Some(list) = v["facts"].as_array() {
+            for f in list {
+                if let Some(r) = f["replaces"].as_array() {
+                    replaced.extend(r.iter().filter_map(|n| n.as_u64()).map(|n| n as usize).filter(|n| *n < facts.len()));
+                }
+            }
+        }
+        if !replaced.is_empty() {
+            replaced.sort_unstable();
+            replaced.dedup();
+            for i in replaced.iter().rev() {
+                facts.remove(*i);
+            }
+        }
         if let Some(list) = v["facts"].as_array() {
             for f in list {
                 let (Some(subject), Some(content)) =
@@ -173,7 +202,7 @@ pub(crate) fn spawn_consolidation(app: AppHandle, exchanges: Vec<ChatMessage>) {
                 kept += 1;
             }
         }
-        if kept > 0 {
+        if kept > 0 || !replaced.is_empty() {
             if facts.len() > 200 { facts = facts.split_off(facts.len() - 200); } // vieillissement
             let _ = fs::write(facts_path(&app), serde_json::to_string_pretty(&facts).unwrap());
         }
@@ -187,7 +216,8 @@ pub(crate) fn spawn_consolidation(app: AppHandle, exchanges: Vec<ChatMessage>) {
                 let _ = fs::write(episodes_path(&app), serde_json::to_string_pretty(&episodes).unwrap());
             }
         }
-        log_event(&app, "memory", &format!("consolidation : {} fait(s) retenu(s)", kept));
+        log_event(&app, "memory", &format!("consolidation : {} fait(s) retenu(s), {} remplacé(s)", kept, replaced.len()));
+        crate::skills::maybe_reflect(&app);
     });
 }
 
@@ -244,9 +274,11 @@ pub(crate) fn get_facts(app: AppHandle) -> Vec<Fact> {
 }
 
 #[tauri::command]
-pub(crate) fn forget_fact(app: AppHandle, ts: u64) -> Result<(), String> {
+pub(crate) fn forget_fact(app: AppHandle, ts: u64, content: String) -> Result<(), String> {
+    // les faits d'une même consolidation partagent leur ts : le contenu
+    // (unique grâce au dédoublonnage) désigne le bon
     let mut facts = load_facts(&app);
-    facts.retain(|f| f.ts != ts);
+    facts.retain(|f| !(f.ts == ts && f.content == content));
     fs::write(facts_path(&app), serde_json::to_string_pretty(&facts).unwrap())
         .map_err(|e| e.to_string())
 }

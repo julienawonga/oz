@@ -15,12 +15,17 @@ mod broker;
 mod cursor;
 mod initiative;
 mod journal;
+mod kernel;
 mod memory;
+mod modules;
 mod places;
 mod prefs;
+mod skills;
 mod tools;
+mod toolsets;
 mod vision;
 mod voice;
+mod volume;
 mod watch;
 pub mod windows_api;
 mod zones;
@@ -87,7 +92,12 @@ pub fn run() {
             if let Err(e) = prefs::apply_shortcut(app.handle(), &prefs.mic_shortcut) {
                 journal::log_event(app.handle(), "prefs", &e);
             }
+            let behind = prefs.behind;
             app.manage(prefs::PrefsState(Mutex::new(prefs)));
+            if behind {
+                let _ = tools::apply_layer(app.handle(), true);
+            }
+            volume::recover_at_startup(app.handle());
             initiative::spawn(app.handle().clone());
             Ok(())
         })
@@ -97,6 +107,7 @@ pub fn run() {
             broker::set_permission,
             cursor::cursor_in_window,
             brain::chat,
+            brain::flush_memory,
             brain::get_brain_config,
             brain::set_brain_config,
             voice::transcribe,
@@ -111,6 +122,21 @@ pub fn run() {
             memory::clear_memory,
             memory::get_facts,
             memory::forget_fact,
+            volume::mute_system,
+            volume::duck_others,
+            skills::get_skills,
+            toolsets::get_toolsets,
+            modules::get_modules,
+            modules::prepare_module,
+            modules::install_module,
+            modules::cancel_module,
+            modules::uninstall_module,
+            toolsets::set_toolset_enabled,
+            kernel::exec_decision,
+            kernel::get_custom_tools,
+            kernel::delete_custom_tool,
+            skills::save_skill,
+            skills::delete_skill,
             voice::voice_feed,
             voice::voice_end,
             voice::mic_chunk,
@@ -121,6 +147,12 @@ pub fn run() {
             initiative::initiative_result,
             initiative::initiative_try
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|_, event| {
+            // ne jamais laisser les autres applis baissées après Oz
+            if let tauri::RunEvent::Exit = event {
+                volume::restore_on_exit();
+            }
+        });
 }

@@ -34,12 +34,41 @@ export const state = {
   holdMic: false,
   /** Une figure (zigzag, toupie...) est en cours : pas de balade autonome. */
   performing: false,
+  /** libre, fixe, bord, concentration (réglage). */
+  moveMode: "libre",
 };
+
+interface EggPrefs { show_transcript: boolean; move_mode: string; egg_color: string; egg_texture: string }
+const listeners: Array<(p: EggPrefs, first: boolean) => void> = [];
+let lastPrefs: EggPrefs | null = null;
+/** Appelé à chaque changement de réglages (et une fois au démarrage). */
+export function onPrefs(f: (p: EggPrefs, first: boolean) => void): void {
+  listeners.push(f);
+  if (lastPrefs) f(lastPrefs, true);
+}
+
+/** Couleur et texture de la coquille (variables CSS de styles.css). */
+function applyAppearance(p: EggPrefs): void {
+  const robot = document.getElementById("robot");
+  const body = document.getElementById("robot-body");
+  if (!robot || !body) return;
+  if (p.egg_color) robot.style.setProperty("--egg", p.egg_color);
+  else robot.style.removeProperty("--egg");
+  body.className = body.className.replace(/\btexture-\S+/g, "").trim();
+  if (p.egg_texture && p.egg_texture !== "lisse") body.classList.add(`texture-${p.egg_texture}`);
+}
 
 // réglages de comportement (onglet Réglages du panneau)
 function refreshPrefs(): void {
-  void invoke<{ show_transcript: boolean }>("get_prefs")
-    .then((p) => (state.showTranscript = p.show_transcript))
+  void invoke<EggPrefs>("get_prefs")
+    .then((p) => {
+      const first = lastPrefs === null;
+      state.showTranscript = p.show_transcript;
+      state.moveMode = p.move_mode || "libre";
+      applyAppearance(p);
+      lastPrefs = p;
+      listeners.forEach((f) => f(p, first));
+    })
     .catch(() => {});
 }
 refreshPrefs();

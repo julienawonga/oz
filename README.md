@@ -26,6 +26,7 @@
 <p align="center">
   <a href="#-quick-start">Quick start</a> ·
   <a href="#-features">Features</a> ·
+  <a href="#-modules">Modules</a> ·
   <a href="#-the-trust-contract">Trust contract</a> ·
   <a href="docs/architecture.md">Architecture</a> ·
   <a href="#️-roadmap">Roadmap</a>
@@ -43,32 +44,53 @@ It understands what you say **with a real language model, no keywords**: "what's
 
 | | |
 |---|---|
-| 🎙️ **Voice first** | One Gemini Live session hears you, calls tools and answers out loud: first sound in under a second. Click the egg or press a global hotkey to talk; say "that's all" and it stops listening. |
-| 💬 **Starts the conversation** | When you come back, in the morning or after a long stretch, Gemini decides whether Oz has something worth saying. It calls you by name, or raises its hand if you look busy. Says less when ignored; "not now" mutes it. |
+| 🎙️ **Voice first** | One Gemini Live session hears you, calls tools and answers out loud: first sound in under a second. Click the egg or press a global hotkey; talk over Oz to interrupt it. Other apps are muted while you talk, then restored. |
+| 💬 **Starts the conversation** | When you come back, in the morning or after a long stretch, Gemini decides whether Oz has something worth saying. It calls you by name, or raises its hand if you look busy. "Not now" mutes it. |
 | 🧠 **LLM understanding** | Gemini understands the request however it's phrased and calls tools (function calling). No keyword router. |
-| 👀 **Vision** | Oz captures an allowed window and describes it. **Watch with me**: it sees one allowed window live (one frame per second while you talk) and answers about it in under a second. |
-| 🪟 **Window actions** | List, close, bring to front, always behind the permission broker. |
-| 🐣 **A living egg** | Animations, poses, strolls, tricks (zigzag, circles, spins, flips, dance), named places ("go home"), reaches every screen edge, no-go zones. |
-| 🗂️ **Memory** | Lasting facts drawn from spoken and written conversations, notes on observed windows, deletable one by one. |
-| 🕒 **Context** | Local time injected into every message. |
-| 🎛️ **Admin panel** | Sidebar app in the egg's colors, light and dark: chat, settings (language, mic hotkey, transcript, initiative), memory, permissions with the live list of open windows, zones, activity log, models. |
+| 😄 **Emotions** | Its face changes (12 expressions: joy, laughter, anger, surprise, embarrassment, pride…) and emoji bubbles float up from it. Gemini chooses the feeling, alongside its reply. |
+| 👀 **Vision** | Oz captures an allowed window and describes it. **Watch with me**: it follows one allowed window live while you talk. After "stop watching", no capture without a tap from you. |
+| 🧩 **Toolsets and modules** | Tools are grouped in toolsets you switch on and off, Hermes Agent style. Install **modules** (PowerShell tools + skills) from a git link or a folder, after reading their code. |
+| 🛠️ **Grows its own toolbox** | A Pi-style kernel (read, write, edit files in its own workshop; run PowerShell with your approval) and tools Oz writes itself, each with a test that runs only after you approve it. |
+| 📚 **Skills** | Written know-how you add from the panel; Oz loads one when the situation matches, and drafts new ones from its repeated misses for you to accept. |
+| 🗂️ **Memory** | Lasting facts from your conversations, saved at the end of each one; a new fact that contradicts an old one replaces it. Deletable one by one. |
+| 🐣 **A living egg** | Strolls, poses, tricks (zigzag, spins, flips, dance), named places ("go home"), no-go zones, movement modes (free, fixed, docked, focus), in front of or behind windows, any color and a texture. |
+| 🎛️ **Admin panel** | Sidebar app in the egg's colors, light and dark: chat, settings, memory, skills, tools and modules, permissions with the live list of open windows, zones, activity log, models. |
 
-### Tools available to the brain
+<p align="center">
+  <img src="docs/assets/emotions.png" alt="Oz's twelve expressions" width="760">
+</p>
 
-| Tool | What it does | Required permission |
+### Toolsets
+
+Each group can be switched off in the **Tools** tab: Gemini no longer sees it and the code refuses its tools.
+
+| Toolset | Tools | Permission |
 |---|---|---|
-| `lister_fenetres` | Lists open apps and windows | none (sanctuaries stay invisible) |
-| `regarder_fenetre` | Captures and describes a window | *Look* |
-| `regarder_avec_moi` | Starts or stops the live view of a window | *Look*, checked on every frame |
-| `fermer_fenetre` | Closes a window | *Act* |
-| `mettre_au_premier_plan` | Brings a window to the front | *Act* |
-| `se_deplacer` · `changer_pose` | Moves the egg, sits it down or stands it up | — |
-| `faire_une_figure` | Zigzag, circle, figure eight, wave, spiral, spin, flip, turn around, jump, dance; optionally on the way somewhere | — |
-| `lieux` | Names the current spot ("home") and goes back to it | — |
-| `zone_interdite` | Forbids or allows the spot where Oz stands | — |
-| `finir_conversation` · `pas_maintenant` | Ends the conversation (mic off); mutes Oz's own initiatives for a while | — |
+| Windows | `list_windows`, `close_window`, `focus_window` | listing: none (sanctuaries stay invisible) · close, focus: *Act* |
+| Vision | `look_at_window`, `watch_with_me` | *Look*, checked on every frame |
+| Body | `move`, `set_pose`, `do_trick`, `places`, `no_go_zone`, `set_layer`, `set_movement_mode` | — |
+| Expression | `express_emotion`, `customize_egg` | — |
+| Conversation (always on) | `end_conversation`, `not_now` | — |
+| Sound | `volume` | — |
+| Skills | `read_skill` | — |
+| Kernel | `read_file`, `write_file`, `edit_file`, `run_command` | writes only in its workshop; reading elsewhere and any non-read-only command ask first |
+| Workshop | `create_tool`, `use_tool` | approval for the test and after any change |
+| *Each installed module* | its own tools | its code is reviewed at install; a changed script asks again |
 
-Tool names are in French. Oz's language (French by default) is chosen in the *Settings* tab.
+Tool and parameter names are in English; their descriptions are in French, the language Oz speaks by default (chosen in *Settings*).
+
+## 🧩 Modules
+
+A module adds tools to Oz without touching its code: a folder with a `module.json`, PowerShell scripts and optional skills.
+
+```text
+window-sizes/
+├── module.json      name, version, tools (JSON Schema parameters) and their scripts
+├── window.ps1       gets $OzArgs (arguments) and $OzTool (the tool called)
+└── skills/arranger-fenetres/SKILL.md
+```
+
+Install from the **Tools** tab with a git URL or a local path. Nothing runs before you have read the code of every script and clicked *Install*. Try the example: [`examples/modules/window-sizes`](examples/modules/window-sizes) (minimize, maximize, restore a window). Format and rules: [docs/modules.md](docs/modules.md).
 
 ## 🔐 The trust contract
 
@@ -80,6 +102,7 @@ Tool names are in French. Oz's language (French by default) is chosen in the *Se
 - **Five levels.** Sanctuary · No access · Look · Act · Trust, per app or per window.
 - **Receipts.** Everything Oz has seen, done or been granted is recorded in the activity log.
 - **Secrets in the vault.** The Gemini key lives in Windows Credential Manager, never in a file.
+- **Code you've read.** Commands, Oz-made tools and installed modules only run after you've seen their code; any change asks again.
 
 Details: [docs/permissions.md](docs/permissions.md).
 
@@ -120,34 +143,47 @@ On first launch, open the admin panel, **Models** tab, pick the brain and enter 
 
 ```
 app/
-├── src/egg/        the egg: window, bubble, voice, initiative, movement, tricks, access requests
+├── src/egg/        the egg: window, bubble, voice, emotions, initiative, movement, tricks, access requests
 ├── src/panel/      the admin panel, one module per tab
-└── src-tauri/src/  Rust: broker, brain, tools, voice, initiative, watch, prefs, places, vision, memory, zones, journal
-docs/               architecture, permissions, voice, development
+└── src-tauri/src/  Rust: broker, toolsets registry, tools, kernel, modules, skills, brain, voice, volume,
+                    initiative, watch, vision, memory, prefs, places, zones, journal
+docs/               architecture, permissions, voice, modules, development, roadmap
+examples/modules/   an installable example module
 ```
 
 ## 🧪 Tests
 
 ```bash
-cd app/src-tauri && cargo test     # broker, router, name cleanup
+cd app/src-tauri && cargo test     # broker, toolsets registry, modules, skills, kernel allowlist
 cd .. && npx tsc --noEmit          # front-end type check
 ```
 
 ## 🗺️ Roadmap
 
-- [x] End-to-end real-time voice (one Gemini Live session, tools included)
-- [x] Gemini tools instead of keywords
-- [x] Oz starts the conversation (signals, Gemini judge, call by name or raise its hand)
-- [x] Global mic hotkey, language setting, tricks and named places
-- [x] "Watch with me": live view of an allowed window in the voice session
-- [x] Admin panel redesign
-- [ ] Oz reacts on its own to what it sees
-- [ ] Interrupt Oz by voice
-- [x] Per-window permissions, sanctuaries, activity log
-- [ ] Movement modes: free roam, fixed position, behind windows, docked to an edge, focus
+**Done**
+
+- [x] Real-time voice in one Gemini Live session, tools included; interrupt by voice
+- [x] Gemini tools instead of keywords; Oz starts the conversation on its own
+- [x] Vision and "watch with me", behind per-window permissions and sanctuaries
+- [x] Emotions on its face, movement modes, colors and textures
+- [x] Memory saved after each conversation, contradictions replaced
+- [x] Toolsets, installable modules, skills, Pi-style kernel and tools Oz writes itself
+
+**Next**
+
+- [ ] **MCP servers** as toolsets: the whole MCP ecosystem, each call still behind the broker
+- [ ] **Standard skills** ([agentskills.io](https://agentskills.io), Hermes-compatible): import community skills
+- [ ] **Hooks** for modules: start and end of a conversation, before a reply
+- [ ] Oz reacts on its own (an emotion, a remark) to what it sees or hears
 - [ ] Tools for local models (Ollama)
-- [ ] Egg customization (colors, textures)
-- [ ] Wake word
+
+**Later**
+
+- [ ] Recognize its owner's voice (local voice print) to ignore other voices
+- [ ] Wake word or push-to-talk
+- [ ] macOS and Linux
+
+Details (in French): [docs/roadmap.md](docs/roadmap.md). Ideas and pull requests are welcome.
 
 ## 📚 Documentation
 
@@ -155,8 +191,10 @@ The detailed docs are in French.
 
 - [Architecture](docs/architecture.md): modules, message flow, events.
 - [Permissions](docs/permissions.md): levels, rules, broker behavior.
-- [Voice](docs/voix.md): mic pipeline, transcription, playback.
+- [Voice](docs/voix.md): mic pipeline, transcription, playback, interruption, ducking.
+- [Modules](docs/modules.md): writing and installing a module.
 - [Development](docs/developpement.md): conventions, tests, local data, troubleshooting.
+- [Roadmap](docs/roadmap.md): done, next, later. Old design notes are in [docs/archive](docs/archive/).
 
 <details>
 <summary>Former name: Nid</summary>

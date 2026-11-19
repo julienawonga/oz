@@ -5,6 +5,8 @@ import { renderChat } from "./panel/chat";
 import { renderJournal } from "./panel/journal";
 import { renderMemory } from "./panel/memory";
 import { renderPerms } from "./panel/perms";
+import { leaveSkills, renderSkills } from "./panel/skills";
+import { renderToolsets } from "./panel/toolsets";
 import { kbd, renderSettings } from "./panel/settings";
 import { content, esc, view } from "./panel/util";
 import { renderZones } from "./panel/zones";
@@ -16,6 +18,7 @@ import { renderZones } from "./panel/zones";
 
 document.querySelectorAll<HTMLButtonElement>("#tabs button").forEach((btn) => {
   btn.addEventListener("click", () => {
+    if (view.tab === "skills") leaveSkills();
     view.tab = btn.dataset.tab!;
     document.querySelectorAll("#tabs button").forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
@@ -36,6 +39,8 @@ async function renderAsync(): Promise<void> {
   if (view.tab === "brain") return renderBrain();
   if (view.tab === "settings") return renderSettings();
   if (view.tab === "memory") return renderMemory();
+  if (view.tab === "skills") return renderSkills();
+  if (view.tab === "toolsets") return renderToolsets();
   if (view.tab === "journal") return renderJournal();
 }
 

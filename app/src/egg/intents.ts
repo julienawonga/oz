@@ -1,4 +1,6 @@
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { showEmotion } from "./emotions";
 import { performFigure, type Target } from "./figures";
 import { stopMicStream } from "./mic";
 import { applyPose, eggBounds, glideTo } from "./motion";
@@ -11,7 +13,9 @@ import { state } from "./state";
 // La réponse parlée vient du cerveau : ces actions restent silencieuses.
 
 interface DoEvent {
-  action: "move" | "pose" | "figure" | "goto" | "end";
+  action: "move" | "pose" | "figure" | "goto" | "end" | "mute" | "emotion";
+  emotion?: string;
+  intensity?: number;
   direction?: string;
   pose?: string;
   figure?: string;
@@ -24,6 +28,8 @@ void listen<DoEvent>("oz://do", (e) => {
   if (action === "figure" && figure) void figureTo(figure, direction, x, y);
   if (action === "goto" && x !== undefined && y !== undefined) void glideTo(x, y);
   if (action === "end") void endConversation();
+  if (action === "mute") void muteAfterReply();
+  if (action === "emotion" && e.payload.emotion) showEmotion(e.payload.emotion, e.payload.intensity);
   if (action === "move" && direction) void moveTo(direction);
   if (action === "pose") applyPose(pose === "assis" ? "sit" : "idle");
 });
@@ -69,4 +75,12 @@ async function endConversation(): Promise<void> {
   for (let waited = 0; waited < 4000 && !state.ozSpeaking; waited += 100) await sleep(100);
   for (let waited = 0; waited < 10_000 && state.ozSpeaking; waited += 100) await sleep(100);
   if (state.micRunning) await stopMicStream();
+}
+
+/** Couper le son : Oz finit sa phrase (il parle par les haut-parleurs). */
+async function muteAfterReply(): Promise<void> {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  for (let waited = 0; waited < 4000 && !state.ozSpeaking; waited += 100) await sleep(100);
+  for (let waited = 0; waited < 10_000 && state.ozSpeaking; waited += 100) await sleep(100);
+  await invoke("mute_system");
 }

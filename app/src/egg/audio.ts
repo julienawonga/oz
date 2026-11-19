@@ -4,10 +4,38 @@ import { robot, say, showTranscript } from "./ui";
 
 // ── Lecture vocale streaming (Web Audio, chunks PCM 24 kHz) ──────────
 let audioCtx: AudioContext | null = null;
+/** Toute la voix d'Oz passe par ici : on mesure ce qui sort des enceintes. */
+let outBus: GainNode | null = null;
+let outAnalyser: AnalyserNode | null = null;
+const outSamples = new Float32Array(1024);
 function ensureAudio(): AudioContext {
-  if (!audioCtx) audioCtx = new AudioContext();
+  if (!audioCtx) {
+    audioCtx = new AudioContext();
+    outBus = audioCtx.createGain();
+    outAnalyser = audioCtx.createAnalyser();
+    outAnalyser.fftSize = 1024;
+    outBus.connect(outAnalyser);
+    outAnalyser.connect(audioCtx.destination);
+  }
   if (audioCtx.state === "suspended") void audioCtx.resume();
   return audioCtx;
+}
+
+/** Énergie (RMS) de la voix d'Oz en ce moment : sert à reconnaître, dans
+ *  le micro, son propre écho de la voix de Julien. */
+export function outputLevel(): number {
+  if (!outAnalyser) return 0;
+  outAnalyser.getFloatTimeDomainData(outSamples);
+  let e = 0;
+  for (let i = 0; i < outSamples.length; i++) e += outSamples[i] * outSamples[i];
+  return Math.sqrt(e / outSamples.length);
+}
+
+/** Julien parle par-dessus Oz : on coupe sa voix tout de suite (le serveur
+ *  coupera aussi son tour en entendant Julien). */
+export function bargeIn(): void {
+  stopAudioQueue();
+  talkSilenced = true;
 }
 // débloque l'autoplay dès la première interaction
 window.addEventListener("pointerdown", () => ensureAudio());
@@ -135,18 +163,22 @@ function playPcmChunk(b64: string): void {
   for (let i = 0; i < i16.length; i++) ch[i] = i16[i] / 32768;
   const src = ctx.createBufferSource();
   src.buffer = buf;
-  src.connect(ctx.destination);
+  src.connect(outBus ?? ctx.destination);
   const now = ctx.currentTime;
   if (nextAudioTime < now + 0.05) nextAudioTime = now + 0.05;
   src.start(nextAudioTime);
   liveSources.add(src);
   src.onended = () => liveSources.delete(src);
   nextAudioTime += buf.duration;
-  // "parle" jusqu'à la fin RÉELLE de l'audio planifié (+ petite marge anti-écho)
+  // "parle" jusqu'à la fin RÉELLE de l'audio : planifié + latence de sortie
+  // (le son sort des enceintes après currentTime : 20 ms en filaire, jusqu'à
+  // 300 ms en Bluetooth ; sans elle, le micro captait la fin de sa phrase)
+  // + une marge pour l'écho de la pièce.
   setSpeaking(true);
   clearTimeout(ozSpeakTimer);
+  const latencyMs = ((ctx.outputLatency || 0) + (ctx.baseLatency || 0)) * 1000;
   ozSpeakTimer = window.setTimeout(
     () => setSpeaking(false),
-    Math.max(0, (nextAudioTime - ctx.currentTime) * 1000) + 350
+    Math.max(0, (nextAudioTime - ctx.currentTime) * 1000) + latencyMs + 300
   );
 }

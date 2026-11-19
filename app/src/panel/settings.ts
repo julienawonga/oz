@@ -8,7 +8,27 @@ interface Prefs {
   initiative: boolean;
   language: string;
   mic_shortcut: string;
+  move_mode: string;
+  behind: boolean;
+  egg_color: string;
+  egg_texture: string;
+  barge_in: boolean;
 }
+
+const MOVE_MODES: [string, string][] = [
+  ["libre", "Libre : il se balade"],
+  ["fixe", "Fixe : il reste où tu le poses"],
+  ["bord", "Ancré au bord de l'écran"],
+  ["concentration", "Concentration : petit, discret, muet"],
+];
+const TEXTURES: [string, string][] = [
+  ["lisse", "Lisse"],
+  ["points", "Points"],
+  ["rayures", "Rayures"],
+  ["etoiles", "Étoiles"],
+  ["taches", "Taches"],
+];
+const DEFAULT_EGG = "#38bdf8";
 
 const LANGUAGES: [string, string][] = [
   ["fr-FR", "Français"],
@@ -46,6 +66,8 @@ export async function renderSettings(): Promise<void> {
     row("Raccourci du micro", "Partout, même quand une autre fenêtre est au premier plan. Même effet qu'un clic sur l'œuf.",
       `<button id="s-shortcut" class="btn shortcut-field" type="button">${kbd(prefs.mic_shortcut)}</button>
        <button id="s-shortcut-clear" class="btn ghost sm" type="button" title="Retirer le raccourci">Retirer</button>`) +
+    row("Lui couper la parole", "Parle par-dessus Oz pour l'interrompre, comme avec quelqu'un. Coupe-le si son propre écho l'interrompt (enceintes très fortes).",
+      sw("s-barge", prefs.barge_in), "s-barge") +
     `</section>
     <section class="panel"><div class="panel-head"><h3>Affichage</h3></div>` +
     row("Transcription dans la bulle", "Ce que vous vous dites s'affiche au-dessus de l'œuf. Coupée, Oz parle sans texte à l'écran.",
@@ -56,6 +78,21 @@ export async function renderSettings(): Promise<void> {
       sw("s-initiative", prefs.initiative), "s-initiative") +
     row("Essayer", "Oz cherche tout de suite quelque chose à te dire, sans attendre un signal. Il ne coupe pas une conversation en cours.",
       `<button class="btn" id="s-try" type="button">Essayer maintenant</button>`) +
+    `</section>
+    <section class="panel"><div class="panel-head"><h3>Déplacement</h3></div>` +
+    row("Mode", "Tu peux aussi le lui dire : « reste là », « mets-toi au bord », « je dois me concentrer ». En concentration, il ne prend plus la parole de lui-même.",
+      `<select id="s-move" aria-label="Mode de déplacement">${MOVE_MODES.map(([v, n]) =>
+        `<option value="${v}"${v === prefs.move_mode ? " selected" : ""}>${n}</option>`).join("")}</select>`) +
+    row("Derrière les fenêtres", "Oz vit sur le bureau, sous tes fenêtres, au lieu de rester au-dessus. Gardé au redémarrage.",
+      sw("s-behind", prefs.behind), "s-behind") +
+    `</section>
+    <section class="panel"><div class="panel-head"><h3>Apparence</h3></div>` +
+    row("Couleur", "La couleur de sa coquille. Tu peux aussi lui dire « remets ta couleur d'origine ».",
+      `<input id="s-color" type="color" value="${esc(prefs.egg_color || DEFAULT_EGG)}" aria-label="Couleur de l'œuf">
+       <button id="s-color-reset" class="btn sm" type="button">Couleur d'origine</button>`) +
+    row("Texture", "Un motif sur sa coquille.",
+      `<select id="s-texture" aria-label="Texture">${TEXTURES.map(([v, n]) =>
+        `<option value="${v}"${v === prefs.egg_texture ? " selected" : ""}>${n}</option>`).join("")}</select>`) +
     `</section>`;
 
   const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -81,6 +118,21 @@ export async function renderSettings(): Promise<void> {
     void save({ initiative: (e.target as HTMLInputElement).checked }, "Réglage enregistré"));
   el<HTMLSelectElement>("s-language").addEventListener("change", (e) =>
     void save({ language: (e.target as HTMLSelectElement).value }, "Langue enregistrée"));
+  el<HTMLInputElement>("s-barge").addEventListener("change", (e) =>
+    void save({ barge_in: (e.target as HTMLInputElement).checked }, "Réglage enregistré"));
+  el<HTMLSelectElement>("s-move").addEventListener("change", (e) =>
+    void save({ move_mode: (e.target as HTMLSelectElement).value }, "Mode enregistré"));
+  el<HTMLInputElement>("s-behind").addEventListener("change", (e) =>
+    void save({ behind: (e.target as HTMLInputElement).checked }, "Réglage enregistré"));
+  // la couleur s'applique en direct, l'enregistrement à la fin du choix
+  el<HTMLInputElement>("s-color").addEventListener("change", (e) =>
+    void save({ egg_color: (e.target as HTMLInputElement).value.toLowerCase() }, "Couleur enregistrée"));
+  el("s-color-reset").addEventListener("click", () => {
+    el<HTMLInputElement>("s-color").value = DEFAULT_EGG;
+    void save({ egg_color: "" }, "Couleur d'origine");
+  });
+  el<HTMLSelectElement>("s-texture").addEventListener("change", (e) =>
+    void save({ egg_texture: (e.target as HTMLSelectElement).value }, "Texture enregistrée"));
 
   // ── capture du raccourci : clic, puis la combinaison ; Échap annule ──
   let recording = false;

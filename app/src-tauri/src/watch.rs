@@ -30,15 +30,34 @@ static WATCHING: Mutex<Option<String>> = Mutex::new(None);
 /// Change à chaque démarrage ou arrêt : une boucle périmée s'arrête seule.
 static WATCH_ID: AtomicU64 = AtomicU64::new(0);
 
+/// « Arrête de regarder » : plus aucune capture pendant ce temps, sauf si
+/// Julien l'autorise d'un geste (badge sur l'œuf). Oz avait capturé Chrome
+/// de lui-même quatre secondes après qu'on lui a demandé d'arrêter.
+const LOOK_PAUSE_SECS: u64 = 5 * 60;
+static LOOK_PAUSED_UNTIL: AtomicU64 = AtomicU64::new(0);
+
+pub(crate) fn look_paused() -> bool {
+    now_ts() < LOOK_PAUSED_UNTIL.load(Ordering::SeqCst)
+}
+
+/// Julien a autorisé un regard, ou la conversation est finie.
+pub(crate) fn clear_look_pause() {
+    LOOK_PAUSED_UNTIL.store(0, Ordering::SeqCst);
+}
+
 /// Ce qu'Oz regarde en ce moment, pour son prompt.
 pub(crate) fn current() -> Option<String> {
     WATCHING.lock().unwrap().clone()
 }
 
-/// Outil `regarder_avec_moi`.
+/// Outil `watch_with_me`.
 pub(crate) fn tool(app: &AppHandle, action: &str, target: &str) -> String {
     match action {
-        "arreter" => stop(app, "à la demande de Julien"),
+        "arreter" => {
+            LOOK_PAUSED_UNTIL.store(now_ts() + LOOK_PAUSE_SECS, Ordering::SeqCst);
+            let out = stop(app, "à la demande de Julien");
+            format!("{out} Ne regarde plus aucune fenêtre tant que Julien ne te le redemande pas.")
+        }
         _ => start(app, target),
     }
 }
@@ -56,11 +75,11 @@ fn start(app: &AppHandle, target: &str) -> String {
     tauri::async_runtime::spawn(watch_loop(app.clone(), w, id));
     format!(
         "Tu vois maintenant {label} en direct (une image par seconde pendant que Julien te parle). \
-         Réponds sur ce que tu vois sans utiliser regarder_fenetre pour cette fenêtre."
+         Réponds sur ce que tu vois sans utiliser look_at_window pour cette fenêtre."
     )
 }
 
-fn stop(app: &AppHandle, why: &str) -> String {
+pub(crate) fn stop(app: &AppHandle, why: &str) -> String {
     WATCH_ID.fetch_add(1, Ordering::SeqCst);
     let was = WATCHING.lock().unwrap().take();
     let _ = app.emit("oz://watch", serde_json::json!({"active": false}));

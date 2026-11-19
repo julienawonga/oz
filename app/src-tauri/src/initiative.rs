@@ -54,7 +54,7 @@ pub(crate) fn snooze(app: &AppHandle, minutes: u64) -> String {
     let minutes = minutes.clamp(5, 12 * 60);
     SNOOZE_UNTIL.store(now_ts() + minutes * 60, Ordering::Relaxed);
     log_event(app, "initiative", &format!("en sourdine pour {minutes} min"));
-    format!("D'accord, Oz ne prendra pas la parole de lui-même pendant {minutes} minutes ; le micro se coupe après ta réponse.")
+    format!("D'accord, Oz ne prendra pas la parole de lui-même pendant {minutes} minutes ; le micro se coupe. Si tu as déjà répondu, ne dis plus rien ; sinon, un seul mot.")
 }
 
 /// Secondes depuis la dernière action clavier/souris.
@@ -158,7 +158,7 @@ const JUDGE_PROMPT: &str = "Tu es le jugement d'Oz, un petit œuf compagnon de b
 fn judge_tools() -> serde_json::Value {
     json!([{ "functionDeclarations": [
         {
-            "name": "prendre_la_parole",
+            "name": "speak_up",
             "description": "Oz engage la conversation.",
             "parameters": {"type": "object", "properties": {
                 "maniere": {"type": "string", "enum": ["appeler", "lever_la_main"]},
@@ -167,7 +167,7 @@ fn judge_tools() -> serde_json::Value {
             }, "required": ["maniere", "sujet", "premiere_phrase"]}
         },
         {
-            "name": "rester_silencieux",
+            "name": "stay_silent",
             "description": "Oz ne dit rien pour l'instant.",
             "parameters": {"type": "object", "properties": {
                 "raison": {"type": "string"}
@@ -265,7 +265,7 @@ async fn consider(app: &AppHandle, signal: Signal) -> bool {
         }
     };
     let args = &call["args"];
-    if call["name"].as_str() != Some("prendre_la_parole") {
+    if call["name"].as_str() != Some("speak_up") {
         log_event(
             app,
             "initiative",
@@ -366,8 +366,11 @@ pub(crate) fn spawn(app: AppHandle) {
                 r.retain(|t| now.saturating_sub(*t) < 3600);
                 r.len()
             };
-            let blocked = if !crate::prefs::current(&app).initiative {
+            let prefs = crate::prefs::current(&app);
+            let blocked = if !prefs.initiative {
                 Some("réglage coupé")
+            } else if prefs.move_mode == "concentration" {
+                Some("mode concentration")
             } else if pending(now) {
                 Some("prise de parole déjà en cours")
             } else if now < SNOOZE_UNTIL.load(Ordering::Relaxed) {
