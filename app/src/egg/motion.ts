@@ -16,7 +16,7 @@ interface Stroll {
   targetY?: number;
 }
 let stroll: Stroll | null = null;
-let moveState = { x: 0, y: 0, scale: 1, maxX: 0 };
+let moveState = { x: 0, y: 0, scale: 1, minX: 0, maxX: 0 };
 
 // ── Zones interdites (rectangles en pixels physiques) ────────────────
 export interface Zone { x: number; y: number; w: number; h: number; label: string; }
@@ -47,7 +47,38 @@ export function overlapsZone(px: number, py: number, pw: number, ph: number): Zo
   return null;
 }
 
-function moveWindowTo(x: number, y: number): void {
+/** Limites de la FENÊTRE pour que l'ŒUF reste dans l'écran (bords
+ *  compris) : la fenêtre, plus grande que l'œuf pour loger la bulle,
+ *  peut déborder de l'écran. `egg(x, y)` : rectangle de l'œuf (pixels
+ *  physiques) quand la fenêtre est en (x, y). */
+export async function eggBounds() {
+  const win = getCurrentWindow();
+  const [pos, mon] = await Promise.all([win.outerPosition(), currentMonitor()]);
+  const s = mon?.scaleFactor ?? 1;
+  const monX = mon?.position?.x ?? 0;
+  const monY = mon?.position?.y ?? 0;
+  const monW = mon?.size?.width ?? 1920;
+  const monH = mon?.size?.height ?? 1080;
+  const r = robot.getBoundingClientRect();
+  const M = 10;
+  return {
+    pos,
+    scale: s,
+    minX: monX - r.left * s + M,
+    maxX: monX + monW - r.right * s - M,
+    minY: monY - r.top * s + M,
+    maxY: monY + monH - r.bottom * s - M,
+    egg: (x: number, y: number) => ({ x: x + r.left * s, y: y + r.top * s, w: r.width * s, h: r.height * s }),
+  };
+}
+
+/** L'œuf, si la fenêtre était en (x, y), chevaucherait-il une zone interdite ? */
+function eggInZone(b: Awaited<ReturnType<typeof eggBounds>>, x: number, y: number): Zone | null {
+  const e = b.egg(x, y);
+  return overlapsZone(e.x, e.y, e.w, e.h);
+}
+
+export function moveWindowTo(x: number, y: number): void {
   getCurrentWindow().setPosition(new PhysicalPosition(Math.round(x), Math.round(y)));
 }
 
@@ -59,20 +90,11 @@ export function applyPose(p: PoseName): void {
 }
 
 async function startStroll(): Promise<void> {
-  const win = getCurrentWindow();
-  const [pos, mon, size] = await Promise.all([
-    win.outerPosition(),
-    currentMonitor(),
-    win.outerSize(),
-  ]);
-  void overlapsZone(pos.x, pos.y, size.width, size.height);
-  const scale = mon?.scaleFactor ?? 1;
-  const monX = mon?.position?.x ?? 0;
-  const monW = mon?.size?.width ?? 1920;
-  moveState = { x: pos.x, y: pos.y, scale, maxX: monX + monW - size.width };
-  if (moveState.maxX < monX) moveState.maxX = monX;
+  const b = await eggBounds();
+  const { pos } = b;
+  moveState = { x: pos.x, y: pos.y, scale: b.scale, minX: b.minX, maxX: Math.max(b.minX, b.maxX) };
   let dir = Math.random() < 0.5 ? -1 : 1;
-  if ((dir < 0 && pos.x <= monX + 10) || (dir > 0 && pos.x >= moveState.maxX - 10)) {
+  if ((dir < 0 && pos.x <= b.minX + 10) || (dir > 0 && pos.x >= moveState.maxX - 10)) {
     dir = -dir;
   }
   stroll = { dir, start: performance.now(), end: performance.now() + 1500 + Math.random() * 1500 };
@@ -81,34 +103,21 @@ async function startStroll(): Promise<void> {
 
 // Glisser vers une position cible (commandes vocales/texte)
 export async function glideTo(tx?: number, ty?: number): Promise<void> {
-  const win = getCurrentWindow();
-  const [pos, mon, size] = await Promise.all([
-    win.outerPosition(),
-    currentMonitor(),
-    win.outerSize(),
-  ]);
-  const scale = mon?.scaleFactor ?? 1;
-  const monX = mon?.position?.x ?? 0;
-  const monY = mon?.position?.y ?? 0;
-  const monW = mon?.size?.width ?? 1920;
-  const monH = mon?.size?.height ?? 1080;
-  const maxX = monX + monW - size.width - 10;
-  const maxY = monY + monH - size.height - 10;
-  moveState = { x: pos.x, y: pos.y, scale, maxX: Math.max(monX, maxX) };
+  const b = await eggBounds();
+  const { pos } = b;
+  moveState = { x: pos.x, y: pos.y, scale: b.scale, minX: b.minX, maxX: Math.max(b.minX, b.maxX) };
 
   // 🚫 Zones interdites : si la cible en chevauche une, on cherche la
   // position autorisée la plus proche (glissement vertical puis horizontal)
   const px = tx ?? pos.x;
   const py = ty ?? pos.y;
-  const pw = size.width;
-  const ph = size.height;
   let fx = px;
   let fy = py;
-  if (overlapsZone(fx, fy, pw, ph)) {
+  if (eggInZone(b, fx, fy)) {
     let found = false;
     for (let d = 20; d <= 600 && !found; d += 20) {
       for (const [ox, oy] of [[0, -d], [0, d], [-d, 0], [d, 0], [-d, -d], [d, d], [-d, d], [d, -d]]) {
-        if (!overlapsZone(px + ox, fy + oy, pw, ph)) {
+        if (!eggInZone(b, px + ox, fy + oy)) {
           fx = px + ox;
           fy = fy + oy;
           found = true;
@@ -127,8 +136,8 @@ export async function glideTo(tx?: number, ty?: number): Promise<void> {
     dir: 0,
     start: performance.now(),
     end: performance.now() + 6000, // garde-fou
-    targetX: fx !== undefined ? Math.max(monX + 10, Math.min(maxX, fx)) : undefined,
-    targetY: fy !== undefined ? Math.max(monY + 10, Math.min(maxY, fy)) : undefined,
+    targetX: Math.max(b.minX, Math.min(b.maxX, fx)),
+    targetY: Math.max(b.minY, Math.min(b.maxY, fy)),
   };
   applyPose("walk");
 }
@@ -136,7 +145,7 @@ export async function glideTo(tx?: number, ty?: number): Promise<void> {
 // Boucle d'autonomie : il vit sa vie quand personne ne l'occupe
 setInterval(() => {
   if (
-    state.dragging || state.thinking || state.ozSpeaking || state.micRunning ||
+    state.dragging || state.thinking || state.ozSpeaking || state.micRunning || state.performing ||
     pose !== "idle" || !accessCard.classList.contains("hidden")
   ) return;
   const r = Math.random();
@@ -155,6 +164,13 @@ setInterval(() => {
     applyPose("idle");
   }
   if (pose === "walk" && stroll) {
+    // Julien l'attrape : la balade s'arrête net, sinon elle remet la
+    // fenêtre à son ancienne position toutes les 33 ms et l'œuf « résiste »
+    if (state.dragging) {
+      stroll = null;
+      applyPose("idle");
+      return;
+    }
     if (performance.now() >= stroll.end) {
       stroll = null;
       applyPose("idle");
@@ -183,7 +199,7 @@ setInterval(() => {
       const remain = (stroll.end - performance.now()) / 1000;
       const ease = Math.min(1, elapsed / 0.4) * Math.min(1, remain / 0.4);
       moveState.x += stroll.dir * 70 * Math.max(0.15, ease) * moveState.scale * 0.033;
-      moveState.x = Math.max(0, Math.min(moveState.maxX, moveState.x));
+      moveState.x = Math.max(moveState.minX, Math.min(moveState.maxX, moveState.x));
       moveWindowTo(moveState.x, moveState.y);
     }
   }

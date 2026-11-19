@@ -28,11 +28,22 @@ export const state = {
   voiceOwned: false,
   /** voice_end a été envoyé : le prochain turn-complete clôt NOTRE réponse. */
   voiceClosed: false,
-  /** La parole de Julien de ce tour a déjà été envoyée au cerveau. */
-  routedThisTurn: false,
-  /** Branché par converse.ts : envoie une phrase de Julien au cerveau. */
-  onUserSpeech: null as ((text: string) => void) | null,
+  /** Réglage : la bulle affiche la transcription de la conversation. */
+  showTranscript: true,
+  /** Oz appelle Julien : le micro ne doit pas se couper sur le silence. */
+  holdMic: false,
+  /** Une figure (zigzag, toupie...) est en cours : pas de balade autonome. */
+  performing: false,
 };
+
+// réglages de comportement (onglet Réglages du panneau)
+function refreshPrefs(): void {
+  void invoke<{ show_transcript: boolean }>("get_prefs")
+    .then((p) => (state.showTranscript = p.show_transcript))
+    .catch(() => {});
+}
+refreshPrefs();
+void listen("oz://prefs-updated", refreshPrefs);
 
 // mode voix gemini-live (lecture de la config cerveau, relue à chaque modification)
 function refreshBrainConfig(): void {

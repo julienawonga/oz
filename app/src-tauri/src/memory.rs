@@ -137,23 +137,22 @@ pub(crate) fn spawn_consolidation(app: AppHandle, exchanges: Vec<ChatMessage>) {
             let brain = app.state::<BrainState>();
             brain.config.lock().unwrap().clone()
         };
-        let body = serde_json::json!({
-            "model": cfg.model,
-            "messages": [{"role": "system", "content": CONSOLIDATION_PROMPT},
-                         {"role": "user", "content": serde_json::to_string(&exchanges).unwrap_or_default()}],
-            "stream": false,
-            "think": false,
-            "format": "json"
-        });
-        let Ok(resp) = http_client()
-            .post(format!("{}/api/chat", cfg.url))
-            .json(&body)
-            .send()
-            .await
-        else { return; };
-        let Ok(json) = resp.json::<serde_json::Value>().await else { return; };
-        let Some(text) = json["message"]["content"].as_str() else { return; };
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(text) else { return; };
+        let convo = serde_json::to_string(&exchanges).unwrap_or_default();
+        let text = match cfg.provider.as_str() {
+            "gemini" => consolidate_gemini(&cfg, &convo).await,
+            _ => consolidate_ollama(&cfg, &convo).await,
+        };
+        let text = match text {
+            Ok(t) => t,
+            Err(e) => {
+                log_event(&app, "memory", &format!("consolidation impossible : {e}"));
+                return;
+            }
+        };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+            log_event(&app, "memory", "consolidation : réponse illisible");
+            return;
+        };
 
         // Faits : filtres Waku puis écriture
         let mut facts = load_facts(&app);
@@ -190,6 +189,53 @@ pub(crate) fn spawn_consolidation(app: AppHandle, exchanges: Vec<ChatMessage>) {
         }
         log_event(&app, "memory", &format!("consolidation : {} fait(s) retenu(s)", kept));
     });
+}
+
+async fn consolidate_ollama(cfg: &crate::brain::BrainConfig, convo: &str) -> Result<String, String> {
+    let body = serde_json::json!({
+        "model": cfg.model,
+        "messages": [{"role": "system", "content": CONSOLIDATION_PROMPT},
+                     {"role": "user", "content": convo}],
+        "stream": false,
+        "think": false,
+        "format": "json"
+    });
+    let resp = http_client()
+        .post(format!("{}/api/chat", cfg.url))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let json = resp.json::<serde_json::Value>().await.map_err(|e| e.to_string())?;
+    json["message"]["content"].as_str().map(str::to_string).ok_or_else(|| "réponse vide".into())
+}
+
+async fn consolidate_gemini(cfg: &crate::brain::BrainConfig, convo: &str) -> Result<String, String> {
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
+        cfg.model
+    );
+    let body = serde_json::json!({
+        "systemInstruction": {"parts": [{"text": CONSOLIDATION_PROMPT}]},
+        "contents": [{"role": "user", "parts": [{"text": convo}]}],
+        "generationConfig": {"responseMimeType": "application/json", "temperature": 0.2}
+    });
+    let resp = http_client()
+        .post(&url)
+        .header("x-goog-api-key", &cfg.api_key)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(crate::brain::http_error("Gemini", resp).await);
+    }
+    let json = resp.json::<serde_json::Value>().await.map_err(|e| e.to_string())?;
+    json["candidates"][0]["content"]["parts"]
+        .as_array()
+        .and_then(|parts| parts.iter().filter(|p| p["thought"].as_bool() != Some(true)).find_map(|p| p["text"].as_str()))
+        .map(str::to_string)
+        .ok_or_else(|| "réponse vide".into())
 }
 
 #[tauri::command]

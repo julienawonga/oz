@@ -2,7 +2,7 @@
 
 Deux fenêtres Tauri partagent le même backend Rust :
 
-- **L'œuf** (`index.html`, label `oz`) : surcouche transparente, toujours au premier plan.
+- **L'œuf** (`index.html`, label `oz`) : surcouche transparente de 360 × 720, toujours au premier plan. L'œuf est au milieu ; la place au-dessus et en dessous accueille la bulle. Hors de l'œuf et de la bulle, les clics traversent la fenêtre.
 - **Le panneau** (`panel.html`, label `panel`) : administration.
 
 Le frontend n'a aucune logique de sécurité. Il appelle des commandes Rust (`invoke`) et écoute des événements.
@@ -11,14 +11,19 @@ Le frontend n'a aucune logique de sécurité. Il appelle des commandes Rust (`in
 
 | Module | Rôle |
 |---|---|
-| `lib.rs` | Déclare les modules, migre les anciennes données, enregistre les commandes. |
-| `broker.rs` | Permissions, demandes d'accès, routeur d'intentions, exécution des actions. Contient les tests. |
-| `brain.rs` | Chat (Gemini en SSE, Ollama en NDJSON), prompt système, clé API dans le coffre Windows. |
-| `voice.rs` | Session Gemini Live (WebSocket), micro, lecture de la réponse, whisper. |
-| `memory.rs` | Faits durables, souvenirs sur les fenêtres, consolidation. |
-| `vision.rs` | Capture d'une fenêtre autorisée et description. |
+| `lib.rs` | Déclare les modules, migre les anciennes données, enregistre les commandes, le raccourci global et la boucle d'initiative. |
+| `broker.rs` | Permissions, demandes d'accès, exécution des actions sur les fenêtres. Garde un routeur par mots-clés pour Ollama seulement. Contient les tests. |
+| `tools.rs` | Outils déclarés à Gemini (chat et voix) et leur exécution. |
+| `brain.rs` | Chat écrit (Gemini en SSE avec outils, Ollama en NDJSON), prompt d'Oz dans la langue choisie, clé API dans le coffre Windows. |
+| `voice.rs` | Sessions Gemini Live (conversation et lecture), micro, consignes `live_prompt`, whisper. |
+| `initiative.rs` | Oz engage la conversation : signaux, garde-fous, jugement par Gemini. |
+| `prefs.rs` | Réglages : langue, raccourci du micro, transcription, initiative. |
+| `places.rs` | Lieux nommés (« la maison »). |
+| `memory.rs` | Faits durables, épisodes, souvenirs sur les fenêtres, consolidation (Gemini ou Ollama). |
+| `vision.rs` | Capture d'une fenêtre autorisée et description ; résolution de fenêtre et contrôle du regard partagés (`lookable_window`, `can_look`). |
+| `watch.rs` | « Regarde avec moi » : une image par seconde d'une fenêtre autorisée dans la session vocale. |
 | `zones.rs` | Zones interdites à l'œuf. |
-| `journal.rs` | Quittances : ce qu'Oz a vu, fait, demandé. |
+| `journal.rs` | Quittances : ce qu'Oz a vu, fait, demandé, et le texte des échanges vocaux. |
 | `cursor.rs`, `windows_api.rs` | Curseur global et API Win32 (énumération, capture, fermeture, focus). |
 
 Le client HTTP est partagé (`http_client()`, connexion 10 s, lecture 60 s) et les erreurs HTTP passent par `http_error()`, qui produit des messages lisibles.
@@ -29,39 +34,45 @@ Le client HTTP est partagé (`http_client()`, connexion 10 s, lecture 60 s) et l
 
 | Module | Rôle |
 |---|---|
-| `state.ts` | État partagé : réflexion, voix, propriété de la voix, config du cerveau. |
-| `converse.ts` | Envoie un message, diffuse la réponse, la lit à voix haute. |
-| `intents.ts` | Intentions locales côté interface (zones, déplacements). |
-| `access.ts` | Badge et carte de demande d'accès. |
-| `audio.ts` | File audio, propriété de la voix, événements `oz://voice-*`. |
+| `state.ts` | État partagé : réflexion, voix, micro, réglages. |
+| `window.ts` | Glisser-déposer, clic sur l'œuf, click-through, regard, clignement. |
 | `mic.ts` | Ouverture du micro, détection de silence, halo d'écoute. |
-| `ui.ts` | Gestion de la bulle. |
-| `chatbar.ts`, `window.ts`, `motion.ts` | Saisie, fenêtre cliquable, déplacement de l'œuf. |
+| `audio.ts` | Lecture de la voix, transcriptions dans la bulle, événements `oz://voice-*`. |
+| `initiative.ts` | Mise en scène des prises de parole d'Oz (appeler, lever la main). |
+| `intents.ts` | Actions du corps demandées par les outils (`oz://do`) : déplacement, lieux, pose, figures, fin de conversation. |
+| `motion.ts` | Poses, balade, glissements, bornes de l'écran calculées sur l'œuf, zones interdites. |
+| `figures.ts` | Figures : trajets (zigzag, cercle, huit, vague, spirale) et numéros sur place (toupie, salto, demi-tour, saut, danse). |
+| `converse.ts` | Chat texte en streaming lu par la voix (panneau, reprise après permission). |
+| `access.ts` | Badge et carte de demande d'accès. |
+| `ui.ts` | Bulle (au-dessus ou sous l'œuf selon la place). |
 
-Le panneau (`panel.ts` et `panel/`) a un module par onglet : `chat`, `perms`, `zones`, `brain`, `memory`, `journal`.
+Le panneau (`panel.html`, `panel.ts`, `panel.css` et `panel/`) a une barre latérale groupée : *Oz* (`chat`, `settings`, `memory`), *Confiance* (`perms`, `zones`, `journal`), *Système* (`brain`). Un module par onglet. Le pied de la barre rappelle le raccourci du micro. Couleur d'accent : le bleu de l'œuf ; thème clair ou sombre selon Windows ; sous 720 px de large, la barre ne garde que les icônes.
 
-## Parcours d'un message
+## Parcours d'une parole
 
-Texte tapé ou parole transcrite suivent le même chemin :
+1. Clic sur l'œuf ou raccourci : le micro streame vers la session Live « conversation ».
+2. Gemini Live comprend la demande et, si besoin, appelle un outil.
+3. `tools::run` exécute l'outil. Tout ce qui touche une fenêtre passe par le broker, qui vérifie le niveau d'accès ou lève une demande d'accès. Les outils du corps (déplacement, figures) émettent `oz://do` vers l'œuf.
+4. Oz répond en audio, joué au fil de l'eau.
+5. L'échange est rangé dans l'historique et le journal ; tous les 6 échanges, la conversation est consolidée en faits durables.
 
-1. `converse()` reçoit le texte.
-2. Le routeur d'intentions (`detect_action`) cherche *lister*, *fermer* ou *mettre au premier plan*. Si une action est reconnue, le broker vérifie le niveau d'accès et l'exécute, ou lève une demande d'accès.
-3. Sinon, la mémoire est injectée dans le contexte et le cerveau répond en streaming.
-4. En mode voix, la réponse est lue à voix haute pendant qu'elle arrive.
-5. Après quelques échanges, la conversation est consolidée en faits durables.
+Un message tapé dans le panneau suit le même principe avec le cerveau texte (`chat`) : mêmes outils, mêmes permissions.
 
 ## Événements
 
 | Événement | Émis par | Usage |
 |---|---|---|
+| `oz://do` | outils | Actions du corps : `move`, `goto`, `pose`, `figure`, `end`. |
+| `oz://initiative` | initiative | Oz veut parler : manière, sujet, première phrase. |
+| `oz://shortcut-mic` | raccourci global | Même effet qu'un clic sur l'œuf. |
+| `oz://watch` | watch | Vue en direct active ou non : témoin sur l'œuf. |
+| `oz://prefs-updated` | prefs | L'œuf relit ses réglages. |
 | `oz://access-request` | broker | Affiche la demande d'accès sur l'œuf. |
 | `oz://chat-line` | œuf | Reflète la conversation dans le panneau. |
 | `oz://brain-updated` | panneau | L'œuf relit la config du cerveau. |
-| `oz://voice-audio`, `-interrupted`, `-error`, `-disconnected`, `-reset` | voice | Flux audio et état de la session Live. |
-| `oz://turn-complete` | voice | Fin d'un tour Live. |
-| `oz://user-text` | voice | Transcription de ta voix. |
-| `oz://oz-text` | voice | Texte que Live prononce. |
+| `oz://voice-talk-audio`, `-talk-text`, `-user-text`, `oz://voice-talk-turn` | voice | Conversation vocale : voix d'Oz, transcriptions, fin d'échange. |
+| `oz://voice-audio`, `-interrupted`, `-error`, `-turn-complete` | voice | Session de lecture et état des sessions. |
 
 ## Données locales
 
-Tout est dans le dossier de données de l'application (`%APPDATA%\com.julienawonga.oz`) : `brain.json` (sans clé), permissions, zones, journal, mémoire (`semantic.json`, `episodic.json`). La clé API est dans le Gestionnaire d'identifiants Windows, service `oz`, utilisateur `gemini_api_key`.
+Tout est dans le dossier de données de l'application (`%APPDATA%\com.julienawonga.oz`) : `brain.json` (sans clé), `prefs.json`, `places.json`, `permissions.json`, `zones.json`, `journal.jsonl`, mémoire (`memories.json` et les faits et épisodes consolidés), `initiative-day.txt`. La clé API est dans le Gestionnaire d'identifiants Windows, service `oz`, utilisateur `gemini_api_key`.

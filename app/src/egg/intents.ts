@@ -1,163 +1,72 @@
-import { getCurrentWindow, currentMonitor } from "@tauri-apps/api/window";
-import { invoke } from "@tauri-apps/api/core";
-import { applyPose, getZones, glideTo, setZones, type PoseName } from "./motion";
-import { say, setThinking, showBubble } from "./ui";
+import { listen } from "@tauri-apps/api/event";
+import { performFigure, type Target } from "./figures";
+import { stopMicStream } from "./mic";
+import { applyPose, eggBounds, glideTo } from "./motion";
+import { state } from "./state";
 
-// ── Routeur d'intentions LOCALES (instantanées, sans LLM) ────────────
-// Chaque intention : `match` (test rapide sur le texte en minuscules) puis
-// `run`. Un `run` qui retourne explicitement `false` décline : on passe à
-// l'intention suivante (puis au cerveau si aucune ne prend). L'ordre de la
-// table EST la priorité.
+// ── Actions du corps d'Oz, déclenchées par le cerveau ────────────────
+// Plus aucun mot-clé ici : Gemini comprend la demande de Julien et appelle
+// un outil (src-tauri/src/tools.rs). Les outils qui concernent le corps de
+// l'œuf (se déplacer, changer de pose) arrivent par l'événement `oz://do`.
+// La réponse parlée vient du cerveau : ces actions restent silencieuses.
 
-interface Intent {
-  name: string;
-  match: (lower: string) => boolean;
-  run: (text: string, lower: string) => boolean | void | Promise<boolean | void>;
+interface DoEvent {
+  action: "move" | "pose" | "figure" | "goto" | "end";
+  direction?: string;
+  pose?: string;
+  figure?: string;
+  x?: number; // lieu nommé (position de la fenêtre)
+  y?: number;
 }
 
-// ── Zones interdites (locales, persistées) ──
-async function windowRect(): Promise<{ pos: { x: number; y: number }; size: { width: number; height: number } }> {
-  const win = getCurrentWindow();
-  const [pos, size] = await Promise.all([win.outerPosition(), win.outerSize()]);
-  return { pos, size };
+void listen<DoEvent>("oz://do", (e) => {
+  const { action, direction, pose, figure, x, y } = e.payload;
+  if (action === "figure" && figure) void figureTo(figure, direction, x, y);
+  if (action === "goto" && x !== undefined && y !== undefined) void glideTo(x, y);
+  if (action === "end") void endConversation();
+  if (action === "move" && direction) void moveTo(direction);
+  if (action === "pose") applyPose(pose === "assis" ? "sit" : "idle");
+});
+
+/** Figure, avec une destination éventuelle (lieu ou direction). */
+async function figureTo(figure: string, direction?: string, x?: number, y?: number): Promise<void> {
+  let target: Target | undefined;
+  if (x !== undefined && y !== undefined) target = { x, y };
+  else if (direction) target = await directionTarget(direction);
+  await performFigure(figure, target);
 }
 
-// ── Pose : "assis-toi", "debout"... ──
-const POSE_COMMANDS: Array<[RegExp, PoseName, string]> = [
-  [/\b(assis|assois[- ]?toi|s'asseoir|s'assoire|installe[- ]toi)\b/, "sit", "Je m'installe confortablement 🪺"],
-  [/\b(debout|leve|releve)\b/, "idle", "Me voilà debout ! 🧍"],
-];
+/** Glisse vers un bord / coin / le centre de l'écran courant. */
+async function moveTo(direction: string): Promise<void> {
+  const { x, y } = await directionTarget(direction);
+  if (x !== undefined || y !== undefined) await glideTo(x, y);
+}
 
-// ── Déplacement : "va à gauche", "monte", "va au milieu" ──
-async function runMove(lower: string): Promise<boolean> {
-  // Extrait la géométrie actuelle
-  const win = getCurrentWindow();
-  const [mon, size] = await Promise.all([currentMonitor(), win.outerSize()]);
-  const monX = mon?.position?.x ?? 0;
-  const monY = mon?.position?.y ?? 0;
-  const monW = mon?.size?.width ?? 1920;
-  const monH = mon?.size?.height ?? 1080;
-  const maxX = monX + monW - size.width - 10;
-  const maxY = monY + monH - size.height - 10;
+/** Position de fenêtre pour une direction : c'est l'ŒUF qui touche le
+ *  bord, pas sa fenêtre (plus grande que lui). */
+async function directionTarget(direction: string): Promise<Target> {
+  const b = await eggBounds();
+  const words = direction.toLowerCase().split(/\s+/);
 
   let tx: number | undefined;
   let ty: number | undefined;
-
-  if (/(gauche|left)/.test(lower)) tx = monX + 10;
-  else if (/(droite|right)/.test(lower)) tx = maxX;
-  else if (/(milieu|centre|center)/.test(lower)) tx = monX + (monW - size.width) / 2;
-
-  if (/(haut|monte|monter|up)/.test(lower)) ty = monY + 10;
-  else if (/(bas|descend|descendre|down)/.test(lower)) ty = maxY;
-
-  if (tx === undefined && ty === undefined) return false;
-
-  await glideTo(tx, ty);
-  say("J'y glisse ! 🥚", 2500);
-  return true;
+  if (words.includes("gauche")) tx = b.minX;
+  if (words.includes("droite")) tx = b.maxX;
+  if (words.includes("haut")) ty = b.minY;
+  if (words.includes("bas")) ty = b.maxY;
+  if (words.includes("centre")) {
+    tx = (b.minX + b.maxX) / 2;
+    ty = (b.minY + b.maxY) / 2;
+  }
+  return { x: tx, y: ty };
 }
 
-// ── Vision : "regarde mon éditeur", "que vois-tu ?"... ──
-async function runLook(lower: string): Promise<void> {
-  setThinking(true);
-  try {
-    // cible : ce qui suit "regarde" (sinon fenêtre au premier plan)
-    let target = "";
-    const m = lower.match(/(?:regarde|regarder|décris|decrit)\s+(?:la fenêtre\s+|le programme\s+|l'application\s+)?(?:mon\s+|ma\s+|le\s+|la\s+|les\s+)?(.+)/);
-    if (m && m[1]) {
-      target = m[1].replace(/\b(écran|ecran|fenêtre|fenetre)\b/g, "").trim();
-    }
-    if (/\b(écran|ecran)\b/.test(lower) && !target) target = ""; // tout l'écran → premier plan
-
-    showBubble("Je regarde... 👁️");
-    const desc = await invoke<string>("look_at", {
-      target,
-      question: "Décris ce que tu vois sur cette capture d'écran.",
-    });
-    say(desc.slice(0, 200), Math.min(14000, 4000 + desc.length * 50));
-    void invoke("speak", { text: desc.slice(0, 300) }).catch(() => {});
-  } catch (err) {
-    say(String(err).slice(0, 120), 7000);
-  } finally {
-    setThinking(false);
-  }
-}
-
-const INTENTS: Intent[] = [
-  {
-    // L'ancienne « maison » vit désormais dans le panneau d'administration
-    name: "house",
-    match: (l) => /(maison|ton home|ouvre ta maison|ferme ta maison)/.test(l),
-    run: () => {
-      say("Ma mémoire et mon activité sont dans le panneau d'administration.", 4500);
-    },
-  },
-  {
-    name: "zone-forbid",
-    match: (l) => /(zone interdite|interdis cette zone|interdit ici|zone defensif|zone de défense)/.test(l),
-    run: async () => {
-      const { pos, size } = await windowRect();
-      const zones = getZones();
-      zones.push({ x: pos.x, y: pos.y, w: size.width, h: size.height, label: "interdit" });
-      await invoke("set_zones", { zones });
-      say("Compris, je ne mettrai plus mes pattes ici 🚫", 4500);
-    },
-  },
-  {
-    name: "zone-allow",
-    match: (l) => /(autorise cette zone|supprime la zone|permis ici|enlève la zone|enleve la zone)/.test(l),
-    run: async () => {
-      const { pos, size } = await windowRect();
-      const before = getZones().length;
-      // garde les zones qui ne chevauchent PAS la position actuelle
-      setZones(getZones().filter((z) =>
-        !(pos.x < z.x + z.w && pos.x + size.width > z.x && pos.y < z.y + z.h && pos.y + size.height > z.y)
-      ));
-      const zones = getZones();
-      await invoke("set_zones", { zones });
-      say(before !== zones.length ? "D'accord, je peux revenir ici 😌" : "Il n'y a pas de zone interdite ici 🤔", 4500);
-    },
-  },
-  {
-    name: "zone-list",
-    match: (l) => /(montre les zones|mes zones|combien de zones)/.test(l),
-    run: () => {
-      const zones = getZones();
-      say(zones.length === 0 ? "Aucune zone interdite pour l'instant 🌍" : `J'ai ${zones.length} zone(s) interdite(s) en mémoire 🚫`, 4500);
-    },
-  },
-  {
-    name: "look",
-    // pas de conflit avec les actions (ferme / couche / allonge)
-    match: (l) =>
-      /\b(regarde|regarder|que vois|qu'est[- ]ce que tu vois|décris|decrit)\b/.test(l) &&
-      !/\b(ferme|couche|allonge)\b/.test(l),
-    run: (_text, lower) => runLook(lower),
-  },
-  {
-    name: "move",
-    match: (l) => /(va|vas|vas-y|glisse|deplace[- ]toi|déplace[- ]toi|bouge|va vers)/.test(l),
-    run: (_text, lower) => runMove(lower), // false si aucune direction → on laisse passer
-  },
-  {
-    name: "pose",
-    match: (l) => POSE_COMMANDS.some(([re]) => re.test(l)),
-    run: (_text, lower) => {
-      const cmd = POSE_COMMANDS.find(([re]) => re.test(lower));
-      if (!cmd) return false;
-      applyPose(cmd[1]);
-      say(cmd[2], 4000);
-    },
-  },
-];
-
-/** Tente les intentions locales dans l'ordre ; true si l'une a pris la main. */
-export async function handleLocalIntent(text: string): Promise<boolean> {
-  const lower = text.toLowerCase();
-  for (const intent of INTENTS) {
-    if (!intent.match(lower)) continue;
-    const res = await intent.run(text, lower);
-    if (res !== false) return true;
-  }
-  return false;
+/** Julien clôt la conversation : Oz finit sa phrase, puis n'écoute plus. */
+async function endConversation(): Promise<void> {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  state.holdMic = false;
+  // sa dernière réponse arrive juste après l'outil : on la laisse partir
+  for (let waited = 0; waited < 4000 && !state.ozSpeaking; waited += 100) await sleep(100);
+  for (let waited = 0; waited < 10_000 && state.ozSpeaking; waited += 100) await sleep(100);
+  if (state.micRunning) await stopMicStream();
 }

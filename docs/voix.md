@@ -2,46 +2,88 @@
 
 ## Principe
 
-Gemini Live ne sert qu'à **transcrire** ta voix. Il ne décide pas de ce qu'Oz répond : la transcription est traitée comme du texte tapé (routeur d'intentions, broker de permissions, mémoire, cerveau). La réponse du cerveau est ensuite lue à voix haute par la voix de Live.
+Oz parle en direct avec **une seule session Gemini Live** (`gemini-3.8-live`, session « conversation »). Le micro y est streamé ; le modèle comprend, appelle les outils et répond directement en audio. Il n'y a pas d'étape texte entre ta phrase et sa voix : le premier son arrive en moins d'une seconde.
 
-Si Live répond de lui-même, sa réponse spontanée est jetée. Cette règle est ce qui garde le broker souverain.
+Le broker reste souverain : les outils appelés par Live passent par `tools::run`, exactement comme ceux du chat écrit. Le modèle propose, le code décide.
+
+Une seconde session, « parole », sert seulement à lire à voix haute les réponses du cerveau texte (messages du panneau, reprise après une permission accordée).
 
 ## Chaîne complète
 
-1. Le micro envoie l'audio à la session Live (WebSocket, `inputAudioTranscription`).
-2. Les fragments transcrits arrivent via `oz://user-text`.
-3. Le premier son de Live, ou la fin du tour, signale que tu as fini : la phrase est routée **une seule fois** vers `converse()`.
-4. `converse()` obtient la réponse du cerveau. Pour la lire, Oz demande à Live de la dire mot pour mot, par `voice_feed`, puis termine avec `voice_end`.
-5. L'audio de Live est joué seulement pendant que le cerveau « possède » la voix (`voiceOwned`).
+1. Le micro envoie l'audio en PCM 16 kHz (`mic_chunk`). Si la session est fermée, les morceaux sont mis en attente le temps de la rouvrir : aucun mot perdu.
+2. La session est ouverte avec le prompt d'Oz (`brain::live_system_prompt` : personnalité, langue, heure, mémoire), les outils (`tools::declarations`), les transcriptions entrée et sortie, la compression du contexte et la reprise de session.
+3. Les appels d'outils (`toolCall`) sont exécutés à part, puis renvoyés (`toolResponse`).
+4. L'audio d'Oz arrive en morceaux (`oz://voice-talk-audio`) et est joué au fil de l'eau ; sa transcription (`oz://voice-talk-text`) s'affiche dans la bulle si le réglage le permet.
+5. En fin d'échange (`turnComplete`), l'échange est rangé dans l'historique, écrit dans le journal (`conversation : Julien : « … » — Oz : « … »`) et compte pour la consolidation de la mémoire (tous les 6 échanges).
 
-## Propriété de la voix
+Le serveur ferme la session après environ 2 minutes sans parole. Elle se rouvre au prochain morceau de micro, avec la poignée de reprise : Oz garde le fil.
 
-L'état vit dans `state.ts` et `audio.ts` :
+## Ouvrir et fermer le micro
 
-- `voiceOwned` : le cerveau parle, l'audio de Live est joué.
-- `voiceClosed` : `voice_end` est envoyé, le prochain `turn-complete` clôt notre réponse.
-- `routedThisTurn` : ta phrase a déjà été envoyée au cerveau pour ce tour.
-- Un minuteur de sécurité de 60 s libère la voix si le serveur se tait.
-- L'événement `interrupted` vide seulement la file audio, sans retirer la propriété.
+| Ouvrir | Fermer |
+|---|---|
+| Clic sur l'œuf | Clic sur l'œuf |
+| Raccourci global (**Ctrl+Shift+Espace** par défaut, réglable) | Le raccourci |
+| Oz t'appelle de lui-même (voir *Initiative*) | « Tais-toi », « c'est fini », « pas maintenant » : outil `finir_conversation` ou `pas_maintenant`, le micro se coupe après sa réponse |
+| | 8 s de silence après une phrase, 15 s si rien n'a été dit |
 
-## Micro et arrêt automatique
+Si Oz parle, un clic ou le raccourci lui coupe la parole. Échap coupe sa voix et annule une prise de parole en cours, sans fermer le micro.
 
-- L'écoute s'arrête après **8 s de silence** suivant une phrase, ou **15 s** si rien n'a été dit depuis l'ouverture. Oz annonce : « Je n'entends plus rien, j'arrête d'écouter. »
-- La détection est locale : seuil d'énergie `VOICE_RMS` (0,015) dans `mic.ts`. Une transcription reçue compte aussi comme activité.
-- Le silence n'est pas compté pendant qu'Oz parle ou réfléchit.
-- Pendant l'écoute, l'œuf a un halo rouge qui pulse et les yeux grands ouverts.
-- Si Oz parle, le micro est coupé pour éviter l'écho de sa propre voix. Reprendre la parole coupe la sienne.
+Le silence est détecté localement au volume (`VOICE_RMS`, 0,015, dans `mic.ts`) : un bruit de fond fort peut garder le micro ouvert. Pendant qu'Oz parle, le micro est muet (anti-écho, marge de 350 ms).
+
+Pendant l'écoute, l'œuf a un halo rouge et les yeux grands ouverts.
+
+## Langue
+
+Choisie dans l'onglet *Réglages*. Elle est imposée à la voix (`speechConfig.languageCode`), au prompt (« Réponds toujours en … »), à la vision et à l'initiative. Changer de langue ferme la conversation vocale, qui repart de zéro.
+
+## Initiative : Oz engage la conversation
+
+Module `initiative.rs` (backend) et `egg/initiative.ts` (mise en scène).
+
+1. **Signaux** mesurés toutes les 15 s, sans mot-clé : premier usage du jour, retour après 15 min d'absence (clavier et souris), 50 min de travail sans échange.
+2. **Garde-fous** dans le code : réglage coupé, « pas maintenant » (60 min par défaut), conversation dans les 3 dernières minutes, 12 min entre deux initiatives (+ 25 min par appel ignoré d'affilée), 3 par heure, fenêtre en plein écran. Chaque blocage est écrit dans le journal avec sa raison.
+3. **Jugement** par Gemini (contexte : signal, heure, fenêtre active hors sanctuaire, mémoire, derniers échanges) : `prendre_la_parole` ou `rester_silencieux`.
+4. **Mise en scène** :
+   - *appeler* : micro ouvert, Oz appelle Julien par son prénom jusqu'à trois fois (consignes `[Note interne]` envoyées par `live_prompt`) ; dès que Julien répond, il enchaîne sur son sujet ;
+   - *lever la main* : point bleu qui pulse au-dessus de l'œuf et deux notes douces ; un clic et il parle ; ignoré au bout de 90 s.
+5. **Issue** rendue au backend (`initiative_result` : répondu, ignoré, occupé), qui se fait plus discret quand Julien ne répond pas.
+
+Le bouton *Essayer maintenant* du panneau passe les garde-fous de rythme (pas celui de la conversation en cours).
+
+## Regarde avec moi : la vue en direct
+
+Module `watch.rs`. Julien demande « regarde Chrome avec moi » : l'outil `regarder_avec_moi` (action *commencer*) choisit la fenêtre (vide = celle qu'il utilise) et vérifie qu'Oz a le droit de la regarder, exactement comme la vision.
+
+- Une image JPEG par seconde part dans la session vocale (`realtimeInput.video`), **seulement pendant une conversation** (un morceau de micro dans les 20 dernières secondes). Sans conversation, rien n'est envoyé et la session n'est pas gardée ouverte.
+- Oz répond sur ce qu'il voit sans capture à la demande : premier son en moins d'une seconde, contre environ 5 s avec `regarder_fenetre`.
+- La capture tourne hors du fil asynchrone (`spawn_blocking`) : elle prend jusqu'à 1 s en mode développement.
+- Le broker est consulté **à chaque image** : un accès retiré ou un sanctuaire arrête la vue sur-le-champ.
+- Arrêt automatique : fenêtre fermée, 5 captures ratées d'affilée, ou 20 minutes sans conversation. Une fenêtre réduite n'est pas capturée, la vue continue.
+- Témoin : un petit œil bleu qui pulse à côté de l'œuf (`oz://watch`), avec le nom de la fenêtre au survol.
+- « Arrête de regarder » : action *arreter*. Une seule fenêtre à la fois.
+
+Le prompt vocal indique la fenêtre partagée quand la session s'ouvre pendant une vue en direct.
 
 ## Réglages
 
 | Besoin | Où |
 |---|---|
+| Langue, raccourci du micro, transcription dans la bulle, initiative | Onglet *Réglages* (`prefs.json`) |
 | Le micro coupe trop tôt, ou ne coupe jamais | `VOICE_RMS`, `SILENCE_AFTER_SPEECH_MS`, `SILENCE_BEFORE_SPEECH_MS` dans `app/src/egg/mic.ts` |
-| Modèle Live | Onglet *Modèles* |
-| Clé API | Onglet *Modèles* : elle est stockée dans le Gestionnaire d'identifiants Windows |
+| Seuils de l'initiative | Constantes en tête de `app/src-tauri/src/initiative.rs` |
+| Voix (Kore par défaut), clé API | Onglet *Modèles* (la clé est dans le Gestionnaire d'identifiants Windows) |
+
+## Sondes hors application
+
+- `cargo run --example talk_probe [question]` : session Live unique avec un outil factice, chronométrée. `LANG_CODE=fr-FR` impose la langue.
+- `cargo run --example watch_probe <fenêtre> [question]` : trois images d'une fenêtre dans la session Live, puis une question, chronométrée.
+- `cargo run --example voice_probe [fichier.wav]` : transcription.
 
 ## Limites connues
 
-- Le comportement exact de Live (fidélité de la lecture mot pour mot, ordre des événements) n'a pas été validé sur de longues sessions.
-- Il n'y a pas encore de mot d'éveil ni de touche pour parler : le micro s'ouvre depuis la saisie.
+- On ne peut pas interrompre Oz à la voix : le micro est muet pendant qu'il parle.
+- L'heure et la mémoire du prompt vocal sont figées à l'ouverture de la session.
+- `regarder_fenetre` (capture ponctuelle) passe encore par le modèle texte, environ 5 s ; la vue en direct évite ce délai.
+- La vue en direct ne réagit que quand Julien parle : Oz ne signale pas de lui-même ce qu'il voit.
 - La transcription locale (whisper) est compilée mais n'est pas branchée dans l'interface.

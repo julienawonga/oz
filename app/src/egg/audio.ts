@@ -1,6 +1,6 @@
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { state } from "./state";
-import { robot, say, showBubble } from "./ui";
+import { robot, say, showTranscript } from "./ui";
 
 // ── Lecture vocale streaming (Web Audio, chunks PCM 24 kHz) ──────────
 let audioCtx: AudioContext | null = null;
@@ -31,9 +31,20 @@ function stopAudioQueue(): void {
 export function stopVoice(): void {
   stopAudioQueue();
   releaseVoice();
+  talkSilenced = true; // la suite de la réponse vocale en cours ne sera pas jouée
 }
 
-function releaseVoice(): void {
+// Réponse vocale coupée (Échap) : on jette la fin de son audio, jusqu'à
+// ce que Julien reprenne la parole.
+let talkSilenced = false;
+
+/** Oz prend l'initiative : sa prochaine réponse doit être jouée,
+ *  même si la précédente a été coupée. */
+export function unsilenceTalk(): void {
+  talkSilenced = false;
+}
+
+export function releaseVoice(): void {
   clearTimeout(ownerTimer);
   state.voiceOwned = false;
   state.voiceClosed = false;
@@ -55,14 +66,8 @@ export function markVoiceClosed(): void {
   ownerTimer = window.setTimeout(releaseVoice, 60000);
 }
 
-/** Envoie la parole transcrite de Julien au cerveau (une seule fois par tour). */
-function routeUserSpeech(): void {
-  const text = state.userTurnText.trim();
-  if (state.routedThisTurn || !text) return;
-  state.routedThisTurn = true;
-  state.userTurnText = "";
-  state.onUserSpeech?.(text);
-}
+/** Consigne donnée à Live : lire le texte du cerveau, pas y répondre. */
+export const READ_ALOUD = "Lis à voix haute, mot pour mot, sans rien ajouter ni commenter, ce texte : ";
 
 /** Un seul endroit pilote "Oz parle" : bouche + garde anti-écho. */
 function setSpeaking(on: boolean): void {
@@ -71,14 +76,10 @@ function setSpeaking(on: boolean): void {
 }
 
 void listen<string>("oz://voice-reset", () => (nextAudioTime = 0));
+// Session « parole » : tout son audio est la voix d'Oz. On ne le joue que
+// tant que la réponse nous appartient (Échap / nouvelle question la coupent).
 void listen<string>("oz://voice-audio", (e) => {
-  if (state.voiceOwned) {
-    playPcmChunk(e.payload);
-  } else {
-    // Live commence à répondre de lui-même : sa réponse est jetée, et ce
-    // premier son signale que Julien a fini de parler -> on route vers le cerveau
-    routeUserSpeech();
-  }
+  if (state.voiceOwned) playPcmChunk(e.payload);
 });
 // Le serveur coupe son tour (nouvelle entrée) : on vide la file, on garde la parole
 void listen<string>("oz://voice-interrupted", () => stopAudioQueue());
@@ -86,23 +87,40 @@ void listen<string>("oz://voice-error", (e) => {
   stopVoice();
   say("🎙️ " + String(e.payload).slice(0, 110), 8000);
 });
-void listen<string>("oz://turn-complete", () => {
-  if (state.voiceOwned) {
-    // avant voice_end, un turn-complete appartient à la réponse jetée de Live
-    if (state.voiceClosed) releaseVoice();
-    return;
-  }
-  // tour de Live sans son : si la parole n'a pas encore été routée, on le fait ici
-  routeUserSpeech();
-  state.routedThisTurn = false; // le tour est fini, le prochain peut être routé
+// fin de la lecture : la voix est libre pour la prochaine réponse
+void listen<string>("oz://voice-turn-complete", () => {
+  if (state.voiceClosed) releaseVoice();
 });
-void listen<string>("oz://user-text", (e) => {
-  if (state.routedThisTurn) state.routedThisTurn = false; // nouvelle phrase de Julien
+// ── Session « conversation » : Julien parle, Oz répond directement ──
+// Transcription de Julien (affichée pendant qu'il parle)
+void listen<string>("oz://voice-user-text", (e) => {
+  talkSilenced = false; // Julien reprend la parole : la prochaine réponse sera jouée
+  ozTalkText = "";
   state.userTurnText += e.payload;
-  showBubble("« " + state.userTurnText.trim() + " »", { sticky: true });
+  showTranscript("« " + state.userTurnText.trim() + " »", { sticky: true });
 });
-void listen<string>("oz://oz-text", (e) => {
-  if (state.voiceOwned) showBubble(e.payload, { sticky: true });
+// Voix d'Oz, jouée au fil de l'eau
+void listen<string>("oz://voice-talk-audio", (e) => {
+  if (!talkSilenced) playPcmChunk(e.payload);
+});
+// Ce que dit Oz, affiché dans la bulle en même temps
+let ozTalkText = "";
+void listen<string>("oz://voice-talk-text", (e) => {
+  if (talkSilenced) return;
+  ozTalkText += e.payload;
+  showTranscript(ozTalkText.trim(), { sticky: true });
+});
+// Fin d'un échange : bulle finale et miroir dans le panneau
+void listen<{ user: string; oz: string }>("oz://voice-talk-turn", (e) => {
+  const { user, oz } = e.payload;
+  state.userTurnText = "";
+  ozTalkText = "";
+  if (user) {
+    state.lastUserIntent = user; // rejouée si une permission est accordée ensuite
+    void emit("oz://chat-line", { role: "user", text: user });
+  }
+  void emit("oz://chat-line", { role: "oz", text: oz });
+  if (!talkSilenced) showTranscript(oz, { ttl: Math.min(14000, 3000 + oz.length * 60) });
 });
 
 function playPcmChunk(b64: string): void {

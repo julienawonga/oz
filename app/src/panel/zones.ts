@@ -6,7 +6,7 @@ export async function renderZones(): Promise<void> {
   const zones = (await invoke("get_zones")) as Array<{ x: number; y: number; w: number; h: number; label: string }>;
   let html = pageHead(
     "Zones restreintes",
-    "Zones de l'écran où Oz ne se rend pas. Pour en créer une, placez Oz à l'endroit voulu puis écrivez « zone interdite »."
+    "Endroits de l'écran où Oz ne va jamais. Pour en créer une, place Oz à l'endroit voulu et dis-lui « interdis cet endroit »."
   );
   html += `<section class="panel"><div class="panel-head"><h3>Zones définies</h3><span class="badge">${zones.length}</span></div>`;
   if (zones.length === 0) {

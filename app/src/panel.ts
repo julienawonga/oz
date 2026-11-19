@@ -1,8 +1,11 @@
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { renderBrain } from "./panel/brain";
 import { renderChat } from "./panel/chat";
 import { renderJournal } from "./panel/journal";
 import { renderMemory } from "./panel/memory";
 import { renderPerms } from "./panel/perms";
+import { kbd, renderSettings } from "./panel/settings";
 import { content, esc, view } from "./panel/util";
 import { renderZones } from "./panel/zones";
 
@@ -31,8 +34,42 @@ async function renderAsync(): Promise<void> {
   if (view.tab === "perms") return renderPerms();
   if (view.tab === "zones") return renderZones();
   if (view.tab === "brain") return renderBrain();
+  if (view.tab === "settings") return renderSettings();
   if (view.tab === "memory") return renderMemory();
   if (view.tab === "journal") return renderJournal();
 }
 
 render();
+
+// ── Rafraîchissement automatique ──
+// Le panneau reste ouvert en arrière-plan : sans ça, il montrait l'état du
+// démarrage. On relit les onglets « vivants » quand il reprend le focus et
+// quand Oz rencontre une nouvelle fenêtre. Les onglets avec saisie (chat,
+// modèles) ne sont pas redessinés pour ne pas effacer ce qu'on tape.
+const LIVE_TABS = new Set(["perms", "zones", "memory", "journal"]);
+function refreshLive(): void {
+  if (LIVE_TABS.has(view.tab) && !document.querySelector("#content select:focus")) render();
+}
+window.addEventListener("focus", refreshLive);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) refreshLive();
+});
+void listen("oz://access-request", refreshLive);
+// onglet Permissions affiché : la liste des fenêtres suit l'écran en continu
+setInterval(() => {
+  if (view.tab === "perms" && !document.hidden && document.hasFocus()) refreshLive();
+}, 4000);
+
+// ── Pied de la barre latérale : le raccourci du micro, toujours en vue ──
+async function renderFoot(): Promise<void> {
+  const foot = document.getElementById("sidebar-foot");
+  if (!foot) return;
+  try {
+    const p = (await invoke("get_prefs")) as { mic_shortcut: string };
+    foot.innerHTML = p.mic_shortcut ? `Parler à Oz<br>${kbd(p.mic_shortcut)}` : "";
+  } catch {
+    foot.innerHTML = "";
+  }
+}
+void renderFoot();
+void listen("oz://prefs-updated", () => void renderFoot());

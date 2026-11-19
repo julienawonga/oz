@@ -36,11 +36,16 @@ export async function renderBrain(): Promise<void> {
           <input id="b-key" type="password" value="${esc(cfg.api_key ?? "")}" autocomplete="off" spellcheck="false">
           <button class="btn" id="b-reveal" type="button">${icon("eye")}<span>Afficher</span></button>
         </div>
-        <div class="hint">Stockée localement dans la configuration de l'application.</div></div>
+        <div class="hint">Stockée dans le Gestionnaire d'identifiants Windows, jamais dans un fichier.</div></div>
       <div class="form-actions"><button class="btn primary" id="b-save" type="button">${icon("save")}Enregistrer</button></div>
     </section>`;
 
   const val = (id: string) => (document.getElementById(id) as HTMLInputElement).value.trim();
+  // l'URL d'Ollama n'a de sens qu'avec Ollama
+  const urlField = document.getElementById("b-url")!.closest(".field") as HTMLElement;
+  const syncProvider = () => (urlField.style.display = val("b-provider") === "ollama" ? "" : "none");
+  document.getElementById("b-provider")!.addEventListener("change", syncProvider);
+  syncProvider();
   const keyInput = document.getElementById("b-key") as HTMLInputElement;
   document.getElementById("b-reveal")!.addEventListener("click", (e) => {
     const show = keyInput.type === "password";
