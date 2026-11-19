@@ -87,9 +87,9 @@ export async function renderSettings(): Promise<void> {
       sw("s-behind", prefs.behind), "s-behind") +
     `</section>
     <section class="panel"><div class="panel-head"><h3>Apparence</h3></div>` +
-    row("Couleur", "La couleur de sa coquille.",
+    row("Couleur", "La couleur de sa coquille. Tu peux aussi lui dire « remets ta couleur d'origine ».",
       `<input id="s-color" type="color" value="${esc(prefs.egg_color || DEFAULT_EGG)}" aria-label="Couleur de l'œuf">
-       <button id="s-color-reset" class="btn ghost sm" type="button">D'origine</button>`) +
+       <button id="s-color-reset" class="btn sm" type="button">Couleur d'origine</button>`) +
     row("Texture", "Un motif sur sa coquille.",
       `<select id="s-texture" aria-label="Texture">${TEXTURES.map(([v, n]) =>
         `<option value="${v}"${v === prefs.egg_texture ? " selected" : ""}>${n}</option>`).join("")}</select>`) +
