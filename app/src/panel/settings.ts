@@ -12,6 +12,7 @@ interface Prefs {
   behind: boolean;
   egg_color: string;
   egg_texture: string;
+  barge_in: boolean;
 }
 
 const MOVE_MODES: [string, string][] = [
@@ -65,6 +66,8 @@ export async function renderSettings(): Promise<void> {
     row("Raccourci du micro", "Partout, même quand une autre fenêtre est au premier plan. Même effet qu'un clic sur l'œuf.",
       `<button id="s-shortcut" class="btn shortcut-field" type="button">${kbd(prefs.mic_shortcut)}</button>
        <button id="s-shortcut-clear" class="btn ghost sm" type="button" title="Retirer le raccourci">Retirer</button>`) +
+    row("Lui couper la parole", "Parle par-dessus Oz pour l'interrompre, comme avec quelqu'un. Coupe-le si son propre écho l'interrompt (enceintes très fortes).",
+      sw("s-barge", prefs.barge_in), "s-barge") +
     `</section>
     <section class="panel"><div class="panel-head"><h3>Affichage</h3></div>` +
     row("Transcription dans la bulle", "Ce que vous vous dites s'affiche au-dessus de l'œuf. Coupée, Oz parle sans texte à l'écran.",
@@ -115,6 +118,8 @@ export async function renderSettings(): Promise<void> {
     void save({ initiative: (e.target as HTMLInputElement).checked }, "Réglage enregistré"));
   el<HTMLSelectElement>("s-language").addEventListener("change", (e) =>
     void save({ language: (e.target as HTMLSelectElement).value }, "Langue enregistrée"));
+  el<HTMLInputElement>("s-barge").addEventListener("change", (e) =>
+    void save({ barge_in: (e.target as HTMLInputElement).checked }, "Réglage enregistré"));
   el<HTMLSelectElement>("s-move").addEventListener("change", (e) =>
     void save({ move_mode: (e.target as HTMLSelectElement).value }, "Mode enregistré"));
   el<HTMLInputElement>("s-behind").addEventListener("change", (e) =>

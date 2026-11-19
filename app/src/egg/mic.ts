@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { stopVoice } from "./audio";
+import { bargeIn, outputLevel, stopVoice } from "./audio";
 import { state } from "./state";
 import { robot, say } from "./ui";
 
@@ -14,6 +14,26 @@ const SILENCE_AFTER_SPEECH_MS = 8000; // après une phrase
 const SILENCE_BEFORE_SPEECH_MS = 15000; // rien dit depuis l'ouverture
 const VOICE_RMS = 0.015; // énergie minimale pour compter comme « de la voix »
 let lastActivity = 0;
+
+// ── Interrompre Oz à la voix ──
+// Pendant qu'Oz parle, le micro entend son écho. On apprend en continu
+// le rapport écho / voix d'Oz (le micro ÷ ce qui sort des enceintes) ;
+// quand le micro dépasse nettement l'écho attendu pendant ~250 ms, c'est
+// Julien qui parle : Oz se tait et les derniers morceaux, gardés en
+// réserve, partent pour que le début de sa phrase ne soit pas perdu.
+const BARGE_FRAMES = 3; // tampons de ~85 ms consécutifs
+const BARGE_FACTOR = 3; // au-dessus de 3x l'écho attendu
+let echoGain = 0.3;
+let loudFrames = 0;
+let backlog: string[] = [];
+let bargeEnabled = true;
+function refreshBargePref(): void {
+  void invoke<{ barge_in?: boolean }>("get_prefs")
+    .then((p) => (bargeEnabled = p.barge_in !== false))
+    .catch(() => {});
+}
+refreshBargePref();
+void listen("oz://prefs-updated", refreshBargePref);
 let micStarting = false; // getUserMedia en cours : pas de double ouverture
 let heardSomething = false;
 
@@ -66,18 +86,50 @@ export async function startMicStream(): Promise<void> {
     let micErr: string | null = null;
     micProcessor.onaudioprocess = (ev) => {
       if (!state.micRunning) return;
-      // si Oz parle, on coupe le micro (anti-écho de sa propre voix)
-      if (state.ozSpeaking) {
-        lastActivity = performance.now(); // le silence ne compte qu'une fois Oz tu
-        return;
-      }
       const f32 = ev.inputBuffer.getChannelData(0);
       let energy = 0;
       for (let i = 0; i < f32.length; i++) energy += f32[i] * f32[i];
-      if (Math.sqrt(energy / f32.length) > VOICE_RMS) noteActivity();
+      const rms = Math.sqrt(energy / f32.length);
+      // Oz parle : son écho n'est jamais envoyé, sauf si Julien parle par-dessus
+      if (state.ozSpeaking) {
+        lastActivity = performance.now(); // le silence ne compte qu'une fois Oz tu
+        if (!bargeEnabled) return;
+        const out = outputLevel();
+        const expected = echoGain * out;
+        const threshold = Math.max(VOICE_RMS * 2.5, expected * BARGE_FACTOR);
+        if (rms > threshold) {
+          loudFrames++;
+        } else {
+          loudFrames = 0;
+          // pas de voix de Julien : on affine le rapport écho / voix d'Oz
+          if (out > 0.005) echoGain = Math.min(2, Math.max(0.02, 0.9 * echoGain + 0.1 * (rms / out)));
+        }
+        backlog.push(encode(f32));
+        if (backlog.length > BARGE_FRAMES + 2) backlog.shift();
+        if (loudFrames >= BARGE_FRAMES) {
+          loudFrames = 0;
+          bargeIn();
+          noteActivity();
+          const pending = backlog;
+          backlog = [];
+          for (const data of pending) {
+            void invoke("mic_chunk", { data }).catch(() => {});
+          }
+        }
+        return;
+      }
+      loudFrames = 0;
+      backlog = [];
+      if (rms > VOICE_RMS) noteActivity();
+      void invoke("mic_chunk", { data: encode(f32) }).catch((err) => {
+        micErr = String(err).slice(0, 100);
+      });
+    };
+    /** Micro (48 kHz flottant) -> PCM 16 bits 16 kHz en base64. */
+    const encode = (f32: Float32Array): string => {
       const ratio = micAudioCtx!.sampleRate / 16000;
       const outLen = Math.floor(f32.length / ratio);
-      if (outLen < 1) return;
+      if (outLen < 1) return "";
       const i16 = new Int16Array(outLen);
       // moyenne des échantillons de chaque fenêtre = filtre passe-bas simple
       // (la décimation brute créait de l'aliasing → transcriptions moins fiables)
@@ -89,9 +141,7 @@ export async function startMicStream(): Promise<void> {
         const s = (sum / (to - from)) * 32767;
         i16[i] = Math.max(-32768, Math.min(32767, Math.round(s)));
       }
-      void invoke("mic_chunk", { data: b64FromInt16(i16) }).catch((err) => {
-        micErr = String(err).slice(0, 100);
-      });
+      return b64FromInt16(i16);
     };
     state.micRunning = true;
     micStarting = false;

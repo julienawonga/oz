@@ -36,6 +36,9 @@ pub struct Prefs {
     /// lisse, points, rayures, etoiles, taches.
     #[serde(default = "default_texture")]
     pub egg_texture: String,
+    /// Julien peut couper la parole à Oz en parlant par-dessus lui.
+    #[serde(default = "yes")]
+    pub barge_in: bool,
 }
 
 pub(crate) const MOVE_MODES: &[&str] = &["libre", "fixe", "bord", "concentration"];
@@ -69,6 +72,7 @@ impl Default for Prefs {
             behind: false,
             egg_color: String::new(),
             egg_texture: default_texture(),
+            barge_in: true,
         }
     }
 }
