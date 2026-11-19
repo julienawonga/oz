@@ -1,10 +1,11 @@
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { renderBrain } from "./panel/brain";
 import { renderChat } from "./panel/chat";
 import { renderJournal } from "./panel/journal";
 import { renderMemory } from "./panel/memory";
 import { renderPerms } from "./panel/perms";
-import { renderSettings } from "./panel/settings";
+import { kbd, renderSettings } from "./panel/settings";
 import { content, esc, view } from "./panel/util";
 import { renderZones } from "./panel/zones";
 
@@ -58,3 +59,17 @@ void listen("oz://access-request", refreshLive);
 setInterval(() => {
   if (view.tab === "perms" && !document.hidden && document.hasFocus()) refreshLive();
 }, 4000);
+
+// ── Pied de la barre latérale : le raccourci du micro, toujours en vue ──
+async function renderFoot(): Promise<void> {
+  const foot = document.getElementById("sidebar-foot");
+  if (!foot) return;
+  try {
+    const p = (await invoke("get_prefs")) as { mic_shortcut: string };
+    foot.innerHTML = p.mic_shortcut ? `Parler à Oz<br>${kbd(p.mic_shortcut)}` : "";
+  } catch {
+    foot.innerHTML = "";
+  }
+}
+void renderFoot();
+void listen("oz://prefs-updated", () => void renderFoot());

@@ -41,6 +41,11 @@ export async function renderBrain(): Promise<void> {
     </section>`;
 
   const val = (id: string) => (document.getElementById(id) as HTMLInputElement).value.trim();
+  // l'URL d'Ollama n'a de sens qu'avec Ollama
+  const urlField = document.getElementById("b-url")!.closest(".field") as HTMLElement;
+  const syncProvider = () => (urlField.style.display = val("b-provider") === "ollama" ? "" : "none");
+  document.getElementById("b-provider")!.addEventListener("change", syncProvider);
+  syncProvider();
   const keyInput = document.getElementById("b-key") as HTMLInputElement;
   document.getElementById("b-reveal")!.addEventListener("click", (e) => {
     const show = keyInput.type === "password";

@@ -36,7 +36,7 @@ pub(crate) fn declarations() -> Value {
         },
         {
             "name": "regarder_fenetre",
-            "description": "Fait une capture d'une fenêtre et la décrit. Sert dès que Julien demande ce qu'il y a sur son écran, ce que tu vois, ou de l'aide sur ce qu'il fait.",
+            "description": "Fait une capture d'une fenêtre et la décrit. Sert dès que Julien demande ce qu'il y a sur son écran, ce que tu vois, ou de l'aide sur ce qu'il fait. Inutile pour la fenêtre que tu regardes déjà en direct (regarder_avec_moi) : tu la vois.",
             "parameters": {"type": "object", "properties": {
                 "cible": {"type": "string", "description": "Application ou mot du titre à regarder. Vide pour la fenêtre au premier plan."},
                 "question": {"type": "string", "description": "Ce qu'il faut chercher ou expliquer dans la capture."}
@@ -80,6 +80,14 @@ pub(crate) fn declarations() -> Value {
             }, "required": ["operation"]}
         },
         {
+            "name": "regarder_avec_moi",
+            "description": "Vue en direct : tu vois une fenêtre en continu pendant que Julien te parle, pour suivre ce qu'il fait et réagir tout de suite. commencer : quand il te demande de regarder avec lui, de suivre ce qu'il fait, de garder un œil sur une fenêtre. arreter : quand il te demande d'arrêter de regarder. Une seule fenêtre à la fois.",
+            "parameters": {"type": "object", "properties": {
+                "action": {"type": "string", "enum": ["commencer", "arreter"]},
+                "cible": {"type": "string", "description": "Application ou mot du titre. Vide pour la fenêtre que Julien utilise."}
+            }, "required": ["action"]}
+        },
+        {
             "name": "finir_conversation",
             "description": "Julien met fin à la conversation (« tais-toi », « c'est fini », « laisse tomber », « à plus », « merci c'est tout ») : tu dis un mot très bref et tu arrêtes de l'écouter. Il rouvrira la conversation en cliquant sur l'œuf."
         },
@@ -121,7 +129,6 @@ async fn dispatch(app: &AppHandle, name: &str, args: &Value) -> String {
             };
             match crate::vision::look_at(
                 app.state::<BrainState>(),
-                app.state::<BrokerState>(),
                 app.clone(),
                 arg("cible").to_lowercase(),
                 question,
@@ -153,6 +160,7 @@ async fn dispatch(app: &AppHandle, name: &str, args: &Value) -> String {
             "Figure lancée.".into()
         }
         "lieux" => crate::places::tool(app, &arg("operation"), &arg("nom")),
+        "regarder_avec_moi" => crate::watch::tool(app, &arg("action"), &arg("cible").to_lowercase()),
         "changer_pose" => {
             let _ = app.emit("oz://do", json!({"action": "pose", "pose": arg("pose")}));
             "Pose changée.".into()

@@ -51,6 +51,20 @@ Module `initiative.rs` (backend) et `egg/initiative.ts` (mise en scène).
 
 Le bouton *Essayer maintenant* du panneau passe les garde-fous de rythme (pas celui de la conversation en cours).
 
+## Regarde avec moi : la vue en direct
+
+Module `watch.rs`. Julien demande « regarde Chrome avec moi » : l'outil `regarder_avec_moi` (action *commencer*) choisit la fenêtre (vide = celle qu'il utilise) et vérifie qu'Oz a le droit de la regarder, exactement comme la vision.
+
+- Une image JPEG par seconde part dans la session vocale (`realtimeInput.video`), **seulement pendant une conversation** (un morceau de micro dans les 20 dernières secondes). Sans conversation, rien n'est envoyé et la session n'est pas gardée ouverte.
+- Oz répond sur ce qu'il voit sans capture à la demande : premier son en moins d'une seconde, contre environ 5 s avec `regarder_fenetre`.
+- La capture tourne hors du fil asynchrone (`spawn_blocking`) : elle prend jusqu'à 1 s en mode développement.
+- Le broker est consulté **à chaque image** : un accès retiré ou un sanctuaire arrête la vue sur-le-champ.
+- Arrêt automatique : fenêtre fermée, 5 captures ratées d'affilée, ou 20 minutes sans conversation. Une fenêtre réduite n'est pas capturée, la vue continue.
+- Témoin : un petit œil bleu qui pulse à côté de l'œuf (`oz://watch`), avec le nom de la fenêtre au survol.
+- « Arrête de regarder » : action *arreter*. Une seule fenêtre à la fois.
+
+Le prompt vocal indique la fenêtre partagée quand la session s'ouvre pendant une vue en direct.
+
 ## Réglages
 
 | Besoin | Où |
@@ -63,11 +77,13 @@ Le bouton *Essayer maintenant* du panneau passe les garde-fous de rythme (pas ce
 ## Sondes hors application
 
 - `cargo run --example talk_probe [question]` : session Live unique avec un outil factice, chronométrée. `LANG_CODE=fr-FR` impose la langue.
+- `cargo run --example watch_probe <fenêtre> [question]` : trois images d'une fenêtre dans la session Live, puis une question, chronométrée.
 - `cargo run --example voice_probe [fichier.wav]` : transcription.
 
 ## Limites connues
 
 - On ne peut pas interrompre Oz à la voix : le micro est muet pendant qu'il parle.
 - L'heure et la mémoire du prompt vocal sont figées à l'ouverture de la session.
-- Regarder une fenêtre passe encore par le modèle texte (environ 5 s).
+- `regarder_fenetre` (capture ponctuelle) passe encore par le modèle texte, environ 5 s ; la vue en direct évite ce délai.
+- La vue en direct ne réagit que quand Julien parle : Oz ne signale pas de lui-même ce qu'il voit.
 - La transcription locale (whisper) est compilée mais n'est pas branchée dans l'interface.

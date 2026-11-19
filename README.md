@@ -46,12 +46,12 @@ It understands what you say **with a real language model, no keywords**: "what's
 | 🎙️ **Voice first** | One Gemini Live session hears you, calls tools and answers out loud: first sound in under a second. Click the egg or press a global hotkey to talk; say "that's all" and it stops listening. |
 | 💬 **Starts the conversation** | When you come back, in the morning or after a long stretch, Gemini decides whether Oz has something worth saying. It calls you by name, or raises its hand if you look busy. Says less when ignored; "not now" mutes it. |
 | 🧠 **LLM understanding** | Gemini understands the request however it's phrased and calls tools (function calling). No keyword router. |
-| 👀 **Vision** | Oz captures an allowed window and describes it, or helps with what you're doing. |
+| 👀 **Vision** | Oz captures an allowed window and describes it. **Watch with me**: it sees one allowed window live (one frame per second while you talk) and answers about it in under a second. |
 | 🪟 **Window actions** | List, close, bring to front, always behind the permission broker. |
 | 🐣 **A living egg** | Animations, poses, strolls, tricks (zigzag, circles, spins, flips, dance), named places ("go home"), reaches every screen edge, no-go zones. |
 | 🗂️ **Memory** | Lasting facts drawn from spoken and written conversations, notes on observed windows, deletable one by one. |
 | 🕒 **Context** | Local time injected into every message. |
-| 🎛️ **Admin panel** | Chat, permissions (with live list of open windows), zones, models, settings (language, mic hotkey, transcript, initiative), memory, activity log. |
+| 🎛️ **Admin panel** | Sidebar app in the egg's colors, light and dark: chat, settings (language, mic hotkey, transcript, initiative), memory, permissions with the live list of open windows, zones, activity log, models. |
 
 ### Tools available to the brain
 
@@ -59,6 +59,7 @@ It understands what you say **with a real language model, no keywords**: "what's
 |---|---|---|
 | `lister_fenetres` | Lists open apps and windows | none (sanctuaries stay invisible) |
 | `regarder_fenetre` | Captures and describes a window | *Look* |
+| `regarder_avec_moi` | Starts or stops the live view of a window | *Look*, checked on every frame |
 | `fermer_fenetre` | Closes a window | *Act* |
 | `mettre_au_premier_plan` | Brings a window to the front | *Act* |
 | `se_deplacer` · `changer_pose` | Moves the egg, sits it down or stands it up | — |
@@ -121,7 +122,7 @@ On first launch, open the admin panel, **Models** tab, pick the brain and enter 
 app/
 ├── src/egg/        the egg: window, bubble, voice, initiative, movement, tricks, access requests
 ├── src/panel/      the admin panel, one module per tab
-└── src-tauri/src/  Rust: broker, brain, tools, voice, initiative, prefs, places, vision, memory, zones, journal
+└── src-tauri/src/  Rust: broker, brain, tools, voice, initiative, watch, prefs, places, vision, memory, zones, journal
 docs/               architecture, permissions, voice, development
 ```
 
@@ -138,7 +139,9 @@ cd .. && npx tsc --noEmit          # front-end type check
 - [x] Gemini tools instead of keywords
 - [x] Oz starts the conversation (signals, Gemini judge, call by name or raise its hand)
 - [x] Global mic hotkey, language setting, tricks and named places
-- [ ] "Watch with me": live view of an allowed window in the voice session
+- [x] "Watch with me": live view of an allowed window in the voice session
+- [x] Admin panel redesign
+- [ ] Oz reacts on its own to what it sees
 - [ ] Interrupt Oz by voice
 - [x] Per-window permissions, sanctuaries, activity log
 - [ ] Movement modes: free roam, fixed position, behind windows, docked to an edge, focus

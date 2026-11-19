@@ -8,6 +8,7 @@
 //  vision      : capture + description                  zones   : zones interdites
 //  voice       : Gemini Live, micro, TTS, whisper
 //  initiative  : Oz engage la conversation             prefs   : réglages de comportement
+//  watch       : « Regarde avec moi » (vue en direct)   places  : lieux nommés
 
 mod brain;
 mod broker;
@@ -20,6 +21,7 @@ mod prefs;
 mod tools;
 mod vision;
 mod voice;
+mod watch;
 pub mod windows_api;
 mod zones;
 

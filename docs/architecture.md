@@ -20,7 +20,8 @@ Le frontend n'a aucune logique de sécurité. Il appelle des commandes Rust (`in
 | `prefs.rs` | Réglages : langue, raccourci du micro, transcription, initiative. |
 | `places.rs` | Lieux nommés (« la maison »). |
 | `memory.rs` | Faits durables, épisodes, souvenirs sur les fenêtres, consolidation (Gemini ou Ollama). |
-| `vision.rs` | Capture d'une fenêtre autorisée et description. |
+| `vision.rs` | Capture d'une fenêtre autorisée et description ; résolution de fenêtre et contrôle du regard partagés (`lookable_window`, `can_look`). |
+| `watch.rs` | « Regarde avec moi » : une image par seconde d'une fenêtre autorisée dans la session vocale. |
 | `zones.rs` | Zones interdites à l'œuf. |
 | `journal.rs` | Quittances : ce qu'Oz a vu, fait, demandé, et le texte des échanges vocaux. |
 | `cursor.rs`, `windows_api.rs` | Curseur global et API Win32 (énumération, capture, fermeture, focus). |
@@ -45,7 +46,7 @@ Le client HTTP est partagé (`http_client()`, connexion 10 s, lecture 60 s) et l
 | `access.ts` | Badge et carte de demande d'accès. |
 | `ui.ts` | Bulle (au-dessus ou sous l'œuf selon la place). |
 
-Le panneau (`panel.ts` et `panel/`) a un module par onglet : `chat`, `perms`, `zones`, `brain`, `settings`, `memory`, `journal`.
+Le panneau (`panel.html`, `panel.ts`, `panel.css` et `panel/`) a une barre latérale groupée : *Oz* (`chat`, `settings`, `memory`), *Confiance* (`perms`, `zones`, `journal`), *Système* (`brain`). Un module par onglet. Le pied de la barre rappelle le raccourci du micro. Couleur d'accent : le bleu de l'œuf ; thème clair ou sombre selon Windows ; sous 720 px de large, la barre ne garde que les icônes.
 
 ## Parcours d'une parole
 
@@ -64,6 +65,7 @@ Un message tapé dans le panneau suit le même principe avec le cerveau texte (`
 | `oz://do` | outils | Actions du corps : `move`, `goto`, `pose`, `figure`, `end`. |
 | `oz://initiative` | initiative | Oz veut parler : manière, sujet, première phrase. |
 | `oz://shortcut-mic` | raccourci global | Même effet qu'un clic sur l'œuf. |
+| `oz://watch` | watch | Vue en direct active ou non : témoin sur l'œuf. |
 | `oz://prefs-updated` | prefs | L'œuf relit ses réglages. |
 | `oz://access-request` | broker | Affiche la demande d'accès sur l'œuf. |
 | `oz://chat-line` | œuf | Reflète la conversation dans le panneau. |

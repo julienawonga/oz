@@ -6,7 +6,7 @@ import "./egg/converse";
 import { cancelInitiative, onEggClick } from "./egg/initiative";
 import "./egg/mic";
 import "./egg/motion";
-import { bubble } from "./egg/ui";
+import { bubble, robot } from "./egg/ui";
 import "./egg/window";
 
 // ── Oz · le petit œuf (2D) ─────────────────────────────────────────
@@ -32,3 +32,9 @@ window.addEventListener("keydown", (e) => {
 
 // Raccourci global (réglable dans le panneau) : même effet qu'un clic sur l'œuf
 void listen("oz://shortcut-mic", () => onEggClick());
+
+// « Regarde avec moi » : témoin sur l'œuf tant qu'il voit une fenêtre en direct
+void listen<{ active: boolean; label?: string }>("oz://watch", (e) => {
+  robot.classList.toggle("watching", e.payload.active);
+  robot.title = e.payload.active ? `Oz regarde ${e.payload.label ?? ""} avec toi` : "";
+});

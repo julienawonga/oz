@@ -13,7 +13,7 @@ const LEVELS: Array<[string, string]> = [
 interface OpenWindow { title: string; process: string; app: string; label: string }
 
 function levelSelect(key: string, level: string): string {
-  return `<select data-key="${esc(key)}" aria-label="Niveau d'accès">` +
+  return `<select class="level level-${level}" data-key="${esc(key)}" aria-label="Niveau d'accès">` +
     LEVELS.map(([v, label]) => `<option value="${v}"${v === level ? " selected" : ""}>${label}</option>`).join("") +
     `</select>`;
 }
@@ -56,11 +56,14 @@ export async function renderPerms(): Promise<void> {
   if (groups.size === 0) {
     html += `<div class="panel"><div class="empty"><strong>Aucune permission enregistrée</strong>Elles apparaissent quand Oz rencontre de nouvelles fenêtres.</div></div>`;
   }
-  for (const [proc, rows] of [...groups.entries()].sort()) {
-    html += `<section class="panel"><div class="panel-head"><h3>${esc(proc)}</h3><span class="badge">${rows.length}</span></div>`;
-    for (const [key, title, level] of rows) {
-      html += `<div class="list-row"><div class="main"><div class="title">${title === "*" ? "Toutes les fenêtres de l'application" : esc(title) || "(sans titre)"}</div></div>
-        ${levelSelect(key, level)}</div>`;
+  if (groups.size > 0) {
+    html += `<section class="panel">`;
+    for (const [proc, rows] of [...groups.entries()].sort()) {
+      for (const [key, title, level] of rows) {
+        const what = title === "*" ? "Toutes les fenêtres" : esc(title) || "(sans titre)";
+        html += `<div class="list-row"><div class="main"><div class="title">${esc(proc.replace(/\.exe$/i, ""))}</div>
+          <div class="meta">${what}</div></div>${levelSelect(key, level)}</div>`;
+      }
     }
     html += `</section>`;
   }

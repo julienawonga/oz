@@ -543,6 +543,7 @@ pub(crate) async fn voice_end(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub(crate) async fn mic_chunk(app: AppHandle, data: String) -> Result<(), String> {
+    LAST_MIC_CHUNK.store(crate::journal::now_ts(), std::sync::atomic::Ordering::Relaxed);
     let key = gemini_key_from_state(&app).await;
     if key.is_empty() {
         return Err("Aucune clé Gemini : ajoute-la dans le panneau, onglet Modèles".into());
@@ -558,6 +559,28 @@ pub(crate) async fn mic_chunk(app: AppHandle, data: String) -> Result<(), String
     flush_mic_pending().await?; // rattrape d'éventuels chunks en attente
     send_on(Live::Talk, serde_json::json!({
         "realtimeInput": {"audio": {"mimeType": "audio/pcm;rate=16000", "data": data}}
+    }))
+    .await
+}
+
+/// Dernier morceau de micro reçu (secondes) : la vue en direct n'envoie
+/// des images que pendant une conversation.
+static LAST_MIC_CHUNK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Julien parle à Oz en ce moment (micro actif dans les `secs` dernières
+/// secondes ; il est muet pendant qu'Oz parle, d'où une marge).
+pub(crate) fn conversing_within(secs: u64) -> bool {
+    crate::journal::now_ts().saturating_sub(LAST_MIC_CHUNK.load(std::sync::atomic::Ordering::Relaxed)) <= secs
+}
+
+/// Envoie une image (JPEG base64) à la conversation vocale, si elle est
+/// ouverte. N'ouvre jamais de session : pas de conversation, pas d'image.
+pub(crate) async fn send_video_frame(b64: String) -> Result<(), String> {
+    if TALK_TX.lock().await.is_none() {
+        return Ok(());
+    }
+    send_on(Live::Talk, serde_json::json!({
+        "realtimeInput": {"video": {"mimeType": "image/jpeg", "data": b64}}
     }))
     .await
 }

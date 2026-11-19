@@ -2,23 +2,17 @@
 //! Le broker vérifie la permission AVANT la capture.
 
 use base64::Engine as _;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::brain::{http_client, BrainState};
 use crate::broker::{request_access, BrokerState};
 use crate::journal::log_event;
 use crate::memory::remember;
-use crate::windows_api::{active_window, enumerate_windows, friendly_name};
+use crate::windows_api::{active_window, enumerate_windows, friendly_name, WindowHandle};
 
-/// Regarde une fenêtre autorisée et décrit ce qu'il voit via le modèle vision.
-#[tauri::command]
-pub(crate) async fn look_at(
-    state: State<'_, BrainState>,
-    broker: State<'_, BrokerState>,
-    app: AppHandle,
-    target: String,
-    question: String,
-) -> Result<String, String> {
+/// Trouve la fenêtre visée (vide = celle que Julien utilise) et vérifie
+/// qu'Oz a le droit de la regarder. Sans accord : demande d'accès sur l'œuf.
+pub(crate) fn lookable_window(app: &AppHandle, target: &str) -> Result<WindowHandle, String> {
     let windows = enumerate_windows();
     let found = if target.trim().is_empty() {
         // Pas de cible → la fenêtre que Julien utilise (pas l'œuf lui-même)
@@ -38,15 +32,36 @@ pub(crate) async fn look_at(
     };
 
     // 🔐 LE BROKER DÉCIDE : la capture exige look / act / trust
-    let level = broker.0.lock().unwrap().level_for(&w);
-    if level == "sanctuary" {
-        return Err(format!("Je ne trouve pas de fenêtre « {} »", target));
+    match can_look(app, &w) {
+        Some(true) => Ok(w),
+        Some(false) => {
+            request_access(app, &w, "look");
+            Err(format!("J'ai besoin de ton accord pour regarder {}.", friendly_name(&w.process)))
+        }
+        None => Err(format!("Je ne trouve pas de fenêtre « {} »", target)),
     }
-    if !matches!(level.as_str(), "look" | "act" | "trust") {
-        request_access(&app, &w, "look");
-        return Err(format!("J'ai besoin de ton accord pour regarder {}.", friendly_name(&w.process)));
-    }
+}
 
+/// Some(true) : regard permis ; Some(false) : accord nécessaire ;
+/// None : sanctuaire (la fenêtre n'existe pas pour Oz).
+pub(crate) fn can_look(app: &AppHandle, w: &WindowHandle) -> Option<bool> {
+    let level = app.state::<BrokerState>().0.lock().unwrap().level_for(w);
+    match level.as_str() {
+        "sanctuary" => None,
+        "look" | "act" | "trust" => Some(true),
+        _ => Some(false),
+    }
+}
+
+/// Regarde une fenêtre autorisée et décrit ce qu'il voit via le modèle vision.
+#[tauri::command]
+pub(crate) async fn look_at(
+    state: State<'_, BrainState>,
+    app: AppHandle,
+    target: String,
+    question: String,
+) -> Result<String, String> {
+    let w = lookable_window(&app, &target)?;
     let jpg = w.capture_jpeg()?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&jpg);
     log_event(&app, "vision", &format!("a regardé « {} »", w.title));
