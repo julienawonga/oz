@@ -337,7 +337,8 @@ async fn test_tool(app: &AppHandle, name: &str) -> String {
         )
     } else {
         save_tool(app, &tool);
-        log_event(app, "kernel", &format!("test échoué : {}", tool.name));
+        // la sortie aussi : sans elle, impossible de savoir pourquoi
+        log_event(app, "kernel", &format!("test échoué : {} -> {}", tool.name, truncate(&out, 400).replace('\n', " | ")));
         format!(
             "Test échoué (attendu dans la sortie : « {} »). Corrige le code ou le test et rappelle creer_outil avec le même nom.\n{out}",
             tool.test_expect
@@ -402,9 +403,15 @@ pub(crate) fn prompt_block(app: &AppHandle) -> String {
         " Tu as aussi un atelier (un dossier à toi) et des outils de base : lire_fichier, ecrire_fichier, modifier_fichier, \
          executer (PowerShell). Quand aucun de tes outils ne couvre une demande, ne dis pas que tu ne peux pas : \
          fabrique-toi un outil avec creer_outil (code PowerShell + un test), puis utilise-le. Pour agir sur une fenêtre \
-         (réduire, agrandir, déplacer...), appelle l'API Windows depuis PowerShell avec Add-Type (user32.dll : ShowWindow, \
-         FindWindow...). Les arguments arrivent dans la variable $OzArgs (objet JSON). Quand Julien a validé et que le test \
-         est passé, utilise tout de suite l'outil pour sa demande.",
+         (réduire, agrandir, déplacer...), appelle l'API Windows depuis PowerShell avec Add-Type (user32.dll : ShowWindow...) ; \
+         trouve la fenêtre par un MORCEAU de son titre ou par le nom de son appli (Get-Process | Where-Object \
+         { $_.MainWindowTitle -like \"*mot*\" -or $_.ProcessName -like \"*mot*\" }, puis MainWindowHandle), jamais par son \
+         titre exact : le nom que Julien emploie (« le terminal ») n'est presque jamais le titre. Un outil écrit TOUJOURS \
+         sur la sortie ce qui s'est passé (fenêtre trouvée ou non, action faite ou non, et pourquoi) : sans ça tu ne sais \
+         pas s'il a marché. Son test doit prouver l'effet réel : test_attendu est un texte que le script n'écrit qu'en cas \
+         de réussite. Chaque nouvelle version redemande l'accord de Julien : corrige d'un coup ce qui a raté plutôt que \
+         par petites touches. Les arguments arrivent dans la variable $OzArgs (objet JSON). Quand Julien a validé et que \
+         le test est passé, utilise tout de suite l'outil pour sa demande.",
     );
     let tools: Vec<CustomTool> = load_tools(app).into_iter().filter(|t| t.status == "actif").collect();
     if !tools.is_empty() {
