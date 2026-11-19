@@ -257,6 +257,41 @@ pub(crate) async fn ensure_live_session(app: &AppHandle, key: &str, ch: Live) ->
     if ch.tx().lock().await.is_some() {
         return Ok(()); // un autre appel a connecté pendant qu'on attendait
     }
+    let fail = |msg: String| {
+        if ch == Live::Talk {
+            *RESUME_HANDLE.lock().unwrap() = None; // poignée périmée : on repartira de zéro
+        }
+        log_event(app, "voice", &format!("live {} : {msg}", ch.name()));
+        voice_emit(app, "error", &format!("Gemini Live : {msg}"));
+        format!("Gemini Live : {msg}")
+    };
+    // Reprendre la conversation précédente : Google ferme une session restée
+    // inactive, et sa poignée expire. Dans ce cas, session neuve tout de
+    // suite : avant, le premier clic échouait (« session not found or
+    // expired ») et il fallait recliquer.
+    let resumed = ch == Live::Talk && RESUME_HANDLE.lock().unwrap().is_some();
+    let ws = match open_ws(app, key, ch).await {
+        Ok(ws) => ws,
+        Err(e) if resumed => {
+            *RESUME_HANDLE.lock().unwrap() = None;
+            let short: String = e.chars().take(90).collect();
+            log_event(app, "voice", &format!("live conversation : reprise impossible ({short}), nouvelle session"));
+            open_ws(app, key, ch).await.map_err(fail)?
+        }
+        Err(e) => return Err(fail(e)),
+    };
+    log_event(app, "voice", &format!("live {} : session ouverte", ch.name()));
+
+    // ── 3. Split : émetteur dans l'état, lecteur en tâche de fond ──
+    let (tx, rx) = ws.split();
+    let session_id = ch.generation().fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+    *ch.tx().lock().await = Some(tx);
+    tokio::spawn(read_live(app.clone(), ch, rx, session_id));
+    Ok(())
+}
+
+/// Connexion et setup d'une session Live (sans signaler l'erreur à l'œuf).
+async fn open_ws(app: &AppHandle, key: &str, ch: Live) -> Result<WsStream, String> {
     let url = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
     use tokio_tungstenite::tungstenite::client::IntoClientRequest;
     let mut req = url
@@ -267,14 +302,8 @@ pub(crate) async fn ensure_live_session(app: &AppHandle, key: &str, ch: Live) ->
         tokio_tungstenite::tungstenite::http::HeaderValue::from_str(key)
             .map_err(|e| e.to_string())?,
     );
-    let fail = |msg: String| {
-        if ch == Live::Talk {
-            *RESUME_HANDLE.lock().unwrap() = None; // poignée périmée : on repartira de zéro
-        }
-        log_event(app, "voice", &format!("live {} : {msg}", ch.name()));
-        voice_emit(app, "error", &format!("Gemini Live : {msg}"));
-        format!("Gemini Live : {msg}")
-    };
+    // erreurs remontées telles quelles : c'est l'appelant qui décide de réessayer
+    let fail = |msg: String| msg;
     let (mut ws, _) = tokio::time::timeout(
         std::time::Duration::from_secs(15),
         tokio_tungstenite::connect_async(req),
@@ -350,14 +379,7 @@ pub(crate) async fn ensure_live_session(app: &AppHandle, key: &str, ch: Live) ->
             return Err(fail(text.chars().take(160).collect()));
         }
     }
-    log_event(app, "voice", &format!("live {} : session ouverte", ch.name()));
-
-    // ── 3. Split : émetteur dans l'état, lecteur en tâche de fond ──
-    let (tx, rx) = ws.split();
-    let session_id = ch.generation().fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-    *ch.tx().lock().await = Some(tx);
-    tokio::spawn(read_live(app.clone(), ch, rx, session_id));
-    Ok(())
+    Ok(ws)
 }
 
 /// Lecteur d'une session Live : traduit les messages serveur en événements.
