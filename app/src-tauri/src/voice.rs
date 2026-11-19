@@ -290,6 +290,27 @@ pub(crate) async fn ensure_live_session(app: &AppHandle, key: &str, ch: Live) ->
     Ok(())
 }
 
+/// Outils « décoratifs » : Oz n'attend pas leur résultat pour parler, et
+/// ce résultat ne relance pas de génération. Sans ça, après l'outil des
+/// émotions (appelé à presque chaque réponse), Live redisait parfois sa
+/// phrase mot pour mot sur un tour vide.
+const SILENT_TOOLS: &[&str] = &["express_emotion"];
+
+/// Déclarations pour la session Live : celles du registre, avec le
+/// comportement non bloquant des outils décoratifs (champ propre à Live,
+/// refusé par l'API texte).
+fn live_declarations(app: &AppHandle) -> serde_json::Value {
+    let mut decl = crate::tools::declarations(app);
+    if let Some(list) = decl[0]["functionDeclarations"].as_array_mut() {
+        for d in list.iter_mut() {
+            if d["name"].as_str().is_some_and(|n| SILENT_TOOLS.contains(&n)) {
+                d["behavior"] = serde_json::json!("NON_BLOCKING");
+            }
+        }
+    }
+    decl
+}
+
 /// Connexion et setup d'une session Live (sans signaler l'erreur à l'œuf).
 async fn open_ws(app: &AppHandle, key: &str, ch: Live) -> Result<WsStream, String> {
     let url = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
@@ -330,7 +351,7 @@ async fn open_ws(app: &AppHandle, key: &str, ch: Live) -> Result<WsStream, Strin
                     }
                 },
                 "systemInstruction": {"parts": [{"text": crate::brain::live_system_prompt(app)}]},
-                "tools": crate::tools::declarations(app),
+                "tools": live_declarations(app),
                 "inputAudioTranscription": {},
                 "outputAudioTranscription": {},
                 // sans compression, une session audio est coupée au bout de ~15 min
@@ -439,8 +460,13 @@ async fn read_live(app: AppHandle, ch: Live, mut rx: futures_util::stream::Split
                         for call in calls {
                             let name = call["name"].as_str().unwrap_or("").to_string();
                             let result = crate::tools::run(&app2, &name, &call["args"]).await;
+                            let mut response = serde_json::json!({"result": result});
+                            if SILENT_TOOLS.contains(&name.as_str()) {
+                                // résultat reçu sans relancer de génération
+                                response["scheduling"] = serde_json::json!("SILENT");
+                            }
                             responses.push(serde_json::json!({
-                                "id": call["id"], "name": name, "response": {"result": result}
+                                "id": call["id"], "name": name, "response": response
                             }));
                         }
                         let msg = serde_json::json!({"toolResponse": {"functionResponses": responses}});

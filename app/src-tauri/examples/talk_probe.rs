@@ -1,6 +1,8 @@
 //! Sonde de la session Live unique (voix + outils), hors application :
 //!   cargo run --example talk_probe [question]
 //! LANG_CODE=fr-FR : impose la langue de la voix (speechConfig.languageCode).
+//! NONBLOCK=1 : ajoute express_emotion en NON_BLOCKING, résultat en SILENT
+//! (vérifie que le modèle accepte ce comportement, comme dans Oz).
 //! Ouvre gemini-3.8-live avec outils et transcriptions, pose une question en
 //! texte, répond aux appels d'outils par un faux résultat, et chronomètre.
 use futures_util::{SinkExt, StreamExt};
@@ -28,14 +30,24 @@ fn main() {
         if let Some(level) = &thinking {
             gen_cfg["thinkingConfig"] = serde_json::json!({"thinkingLevel": level});
         }
+        let nonblock = std::env::var("NONBLOCK").is_ok();
+        let mut decls = vec![serde_json::json!({
+            "name": "lister_fenetres",
+            "description": "Liste les applications et fenêtres ouvertes sur l'écran de l'utilisateur."
+        })];
+        if nonblock {
+            decls.push(serde_json::json!({
+                "name": "express_emotion",
+                "description": "Montre ton émotion. Appelle-le EN MÊME TEMPS que ta réponse quand tu ressens quelque chose.",
+                "behavior": "NON_BLOCKING",
+                "parameters": {"type": "object", "properties": {"emotion": {"type": "string", "enum": ["joie", "rire", "malice"]}}, "required": ["emotion"]}
+            }));
+        }
         let setup = serde_json::json!({"setup": {
             "model": "models/gemini-3.8-live",
             "generationConfig": gen_cfg,
             "systemInstruction": {"parts": [{"text": "Tu es Oz, un petit œuf compagnon de bureau. Réponds en français, en une ou deux phrases. Utilise tes outils quand c'est utile."}]},
-            "tools": [{"functionDeclarations": [{
-                "name": "lister_fenetres",
-                "description": "Liste les applications et fenêtres ouvertes sur l'écran de Julien."
-            }]}],
+            "tools": [{"functionDeclarations": decls}],
             "inputAudioTranscription": {},
             "outputAudioTranscription": {},
             "contextWindowCompression": {"slidingWindow": {}},
@@ -69,10 +81,14 @@ fn main() {
             }
             if let Some(calls) = v["toolCall"]["functionCalls"].as_array() {
                 println!("{ms:>5} ms  APPEL D'OUTIL : {}", serde_json::to_string(calls).unwrap());
-                let responses: Vec<_> = calls.iter().map(|c| serde_json::json!({
-                    "id": c["id"], "name": c["name"],
-                    "response": {"result": "Applications ouvertes : Spotify, Chrome, WhatsApp, Terminal."}
-                })).collect();
+                let responses: Vec<_> = calls.iter().map(|c| {
+                    if c["name"] == "express_emotion" {
+                        serde_json::json!({"id": c["id"], "name": c["name"], "response": {"result": "Montré.", "scheduling": "SILENT"}})
+                    } else {
+                        serde_json::json!({"id": c["id"], "name": c["name"],
+                            "response": {"result": "Applications ouvertes : Spotify, Chrome, WhatsApp, Terminal."}})
+                    }
+                }).collect();
                 let m = serde_json::json!({"toolResponse": {"functionResponses": responses}});
                 ws.send(Message::Text(m.to_string())).await.unwrap();
                 continue;
