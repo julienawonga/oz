@@ -400,9 +400,11 @@ pub(crate) async fn utiliser_outil(app: &AppHandle, name: &str, args: &Value) ->
 pub(crate) fn prompt_block(app: &AppHandle) -> String {
     let mut s = String::from(
         " Tu as aussi un atelier (un dossier à toi) et des outils de base : lire_fichier, ecrire_fichier, modifier_fichier, \
-         executer (PowerShell). Quand aucun de tes outils ne couvre une demande et qu'elle reviendra sans doute, fabrique-toi \
-         un outil durable avec creer_outil (code PowerShell + un test) plutôt que de bricoler à chaque fois. \
-         Les arguments arrivent dans la variable $OzArgs (objet JSON).",
+         executer (PowerShell). Quand aucun de tes outils ne couvre une demande, ne dis pas que tu ne peux pas : \
+         fabrique-toi un outil avec creer_outil (code PowerShell + un test), puis utilise-le. Pour agir sur une fenêtre \
+         (réduire, agrandir, déplacer...), appelle l'API Windows depuis PowerShell avec Add-Type (user32.dll : ShowWindow, \
+         FindWindow...). Les arguments arrivent dans la variable $OzArgs (objet JSON). Quand Julien a validé et que le test \
+         est passé, utilise tout de suite l'outil pour sa demande.",
     );
     let tools: Vec<CustomTool> = load_tools(app).into_iter().filter(|t| t.status == "actif").collect();
     if !tools.is_empty() {

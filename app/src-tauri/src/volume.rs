@@ -103,9 +103,9 @@ use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
 };
 
-/// Part du volume d'origine gardée pendant la conversation (à 20 %, une
-/// vidéo couvrait encore la voix de Julien).
-const DUCK_RATIO: f32 = 0.06;
+/// Part du volume d'origine gardée pendant la conversation : rien. Même à
+/// 6 %, une vidéo couvrait encore la voix de Julien ; le son revient après.
+const DUCK_RATIO: f32 = 0.0;
 /// Volumes d'origine des sessions baissées : (pid, volume).
 static DUCKED: Mutex<Vec<(u32, f32)>> = Mutex::new(Vec::new());
 
@@ -211,7 +211,7 @@ fn restore() -> Result<usize, String> {
 pub(crate) fn duck_others(app: AppHandle, on: bool) -> Result<(), String> {
     let n = if on { duck()? } else { restore()? };
     if n > 0 {
-        log_event(&app, "volume", &format!("{} {n} appli(s)", if on { "baisse" } else { "remet" }));
+        log_event(&app, "volume", &format!("{} {n} appli(s)", if on { "coupe le son de" } else { "remet le son de" }));
     }
     Ok(())
 }
