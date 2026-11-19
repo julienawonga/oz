@@ -18,10 +18,16 @@
 - Modes de déplacement : libre, fixe, ancré au bord, concentration ; devant ou derrière les fenêtres.
 - Apparence : couleur et texture de la coquille.
 - Interrompre Oz à la voix ; garde anti-écho qui suit la latence de sortie.
+- Émotions : le visage change (12 expressions) et des bulles d'émoji s'envolent ; Gemini choisit l'émotion.
+- Personnalité plus vivante (humeurs, caprices, jeux où il laisse chercher), toujours dans la langue choisie.
+- Mémoire traitée en fin de conversation ; un fait qui en contredit un autre le remplace.
+- Garde-fou du regard : après « arrête de regarder », plus aucune capture sans un geste de Julien.
+- Son des autres applis coupé pendant la conversation, remis même après un arrêt forcé d'Oz.
 
 ## Ensuite
 
-- Traiter la mémoire en fin de conversation (aujourd'hui, consolidation par lots de 6 échanges seulement).
+- Fusionner la branche `feat/skills-volume-fixes` dans `main`.
+- Oz réagit de lui-même avec une émotion à ce qu'il voit ou entend (aujourd'hui, seulement quand il répond).
 - Oz réagit de lui-même à ce qu'il voit pendant « Regarde avec moi ».
 - Outils pour les modèles locaux (Ollama), pour retirer le dernier routeur par mots-clés.
 - Vérifier si la reprise de session Live accepte une nouvelle liste d'outils (aujourd'hui, les outils fabriqués passent par `utiliser_outil`).
