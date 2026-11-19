@@ -369,3 +369,8 @@ time { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums;
   background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm);
   font: 12px/1.5 ui-monospace, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
 .hidden { display: none !important; }
+
+/* outils d'un toolset, en petites étiquettes */
+.tool-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.tool-chips code { font: 11.5px/1.6 ui-monospace, Consolas, monospace; padding: 0 6px; border-radius: 4px;
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--muted); }

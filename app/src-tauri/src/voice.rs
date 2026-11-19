@@ -301,7 +301,7 @@ pub(crate) async fn ensure_live_session(app: &AppHandle, key: &str, ch: Live) ->
                     }
                 },
                 "systemInstruction": {"parts": [{"text": crate::brain::live_system_prompt(app)}]},
-                "tools": crate::tools::declarations(),
+                "tools": crate::tools::declarations(app),
                 "inputAudioTranscription": {},
                 "outputAudioTranscription": {},
                 // sans compression, une session audio est coupée au bout de ~15 min

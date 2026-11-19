@@ -130,6 +130,9 @@ pub(crate) fn load(app: &AppHandle) -> Vec<Skill> {
 
 /// Bloc ajouté aux consignes : la liste des skills actifs.
 pub(crate) fn index_block(app: &AppHandle) -> String {
+    if !crate::toolsets::enabled(app, "skills") {
+        return String::new();
+    }
     let skills: Vec<Skill> = load(app).into_iter().filter(|s| s.enabled && !s.proposed).take(MAX_IN_PROMPT).collect();
     if skills.is_empty() {
         return String::new();
@@ -354,4 +357,26 @@ async fn reflect(app: &AppHandle, skills: &[Skill]) -> Result<Option<String>, St
     save_skill(app.clone(), skill)?;
     let _ = tauri::Emitter::emit(app, "oz://skills-updated", ());
     Ok(Some(name))
+}
+
+// ── Toolset « Skills » ──
+
+pub(crate) fn toolsets() -> Vec<crate::toolsets::Toolset> {
+    vec![crate::toolsets::Toolset {
+        id: "skills",
+        label: "Skills",
+        description: "Lire les savoir-faire que tu lui as appris (onglet Skills).",
+        core: false,
+        tools: vec![serde_json::json!({
+            "name": "read_skill",
+            "description": "Charge les instructions complètes d'un de tes skills (la liste est dans tes consignes). À appeler dès que la situation correspond à la description d'un skill, avant d'agir ou de répondre.",
+            "parameters": {"type": "object", "properties": {
+                "name": {"type": "string", "description": "Nom du skill, tel qu'il apparaît dans la liste."}
+            }, "required": ["name"]}
+        })],
+    }]
+}
+
+pub(crate) fn run(app: &AppHandle, name: &str, args: &serde_json::Value) -> Option<String> {
+    (name == "read_skill").then(|| tool(app, args["name"].as_str().unwrap_or("").trim()))
 }

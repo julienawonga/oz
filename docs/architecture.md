@@ -13,7 +13,8 @@ Le frontend n'a aucune logique de sécurité. Il appelle des commandes Rust (`in
 |---|---|
 | `lib.rs` | Déclare les modules, migre les anciennes données, enregistre les commandes, le raccourci global et la boucle d'initiative. |
 | `broker.rs` | Permissions, demandes d'accès, exécution des actions sur les fenêtres. Garde un routeur par mots-clés pour Ollama seulement. Contient les tests. |
-| `tools.rs` | Outils déclarés à Gemini (chat et voix) et leur exécution. |
+| `toolsets.rs` | Registre des outils, rangés en toolsets (à la façon d'Hermes Agent) : rassemble les toolsets de chaque module, ne déclare à Gemini que les actifs, refuse les outils d'un toolset coupé. |
+| `tools.rs` | Toolsets natifs (Fenêtres, Vision, Corps, Expression, Conversation), point d'entrée `run` (garde-fous communs, journal) et exécution des outils natifs. |
 | `brain.rs` | Chat écrit (Gemini en SSE avec outils, Ollama en NDJSON), prompt d'Oz dans la langue choisie, clé API dans le coffre Windows. |
 | `voice.rs` | Sessions Gemini Live (conversation et lecture), micro, consignes `live_prompt`, whisper. |
 | `initiative.rs` | Oz engage la conversation : signaux, garde-fous, jugement par Gemini. |
@@ -49,7 +50,7 @@ Le client HTTP est partagé (`http_client()`, connexion 10 s, lecture 60 s) et l
 | `access.ts` | Badge et carte de demande : accès à une fenêtre, ou commande / outil qu'Oz veut lancer (code affiché). |
 | `ui.ts` | Bulle (au-dessus ou sous l'œuf selon la place). |
 
-Le panneau (`panel.html`, `panel.ts`, `panel.css` et `panel/`) a une barre latérale groupée : *Oz* (`chat`, `settings`, `memory`, `skills`), *Confiance* (`perms`, `zones`, `journal`), *Système* (`brain`). Un module par onglet. Le pied de la barre rappelle le raccourci du micro. Couleur d'accent : le bleu de l'œuf ; thème clair ou sombre selon Windows ; sous 720 px de large, la barre ne garde que les icônes.
+Le panneau (`panel.html`, `panel.ts`, `panel.css` et `panel/`) a une barre latérale groupée : *Oz* (`chat`, `settings`, `memory`, `skills`, `toolsets`), *Confiance* (`perms`, `zones`, `journal`), *Système* (`brain`). Un module par onglet. Le pied de la barre rappelle le raccourci du micro. Couleur d'accent : le bleu de l'œuf ; thème clair ou sombre selon Windows ; sous 720 px de large, la barre ne garde que les icônes.
 
 ## Parcours d'une parole
 
@@ -90,3 +91,23 @@ On parle à Oz et la transcription se trompe parfois : rien de risqué ne part s
 - **Exécuter** : un enchaînement de cmdlets de lecture d'une courte liste (`Get-Process`, `Get-Date`, `Select-Object`…), sans variable, bloc ni redirection, passe seul. Tout le reste est affiché sur l'œuf et attend l'accord ; le résultat revient ensuite dans la conversation (`live_prompt`). Délai de 25 s, sortie tronquée.
 - **Outils fabriqués** : `create_tool` enregistre un script PowerShell avec un test. Le test tourne après accord ; l'outil n'est adopté que s'il sort sans erreur et affiche le texte attendu. Le script exact approuvé tourne ensuite sans redemander ; la moindre modification redemande un accord. Au plus 25 outils.
 - Les outils de la session Live sont fixés à son ouverture : un outil fabriqué se lance par l'outil générique `use_tool`, et la liste des outils adoptés est donnée dans les consignes.
+
+## Toolsets
+
+Les outils sont rangés en **toolsets**, des groupes qu'on active ou coupe d'un bloc dans l'onglet *Outils* du panneau (réglage `disabled_toolsets`). Gemini ne reçoit que les outils des toolsets actifs, et `toolsets::dispatch` refuse un outil dont le groupe est coupé : le modèle ne peut pas contourner le réglage. Changer un toolset relance la session vocale, car Gemini Live fixe ses outils à l'ouverture.
+
+| Toolset | Module | Outils |
+|---|---|---|
+| Fenêtres | `tools.rs` | `list_windows`, `close_window`, `focus_window` |
+| Vision | `tools.rs` | `look_at_window`, `watch_with_me` |
+| Corps | `tools.rs` | `move`, `set_pose`, `do_trick`, `places`, `no_go_zone`, `set_layer`, `set_movement_mode` |
+| Expression | `tools.rs` | `express_emotion`, `customize_egg` |
+| Conversation (toujours actif) | `tools.rs` | `end_conversation`, `not_now` |
+| Son | `volume.rs` | `volume` |
+| Skills | `skills.rs` | `read_skill` |
+| Noyau | `kernel.rs` | `read_file`, `write_file`, `edit_file`, `run_command` |
+| Atelier | `kernel.rs` | `create_tool`, `use_tool` |
+
+Les consignes suivent : sans *Skills*, la liste des skills n'est plus donnée ; sans *Atelier*, Oz n'est plus invité à se fabriquer des outils.
+
+**Ajouter un module.** Dans le module : une fonction `toolsets() -> Vec<Toolset>` (identifiant, nom, description, déclarations au format Gemini) et une fonction `run(app, name, args) -> Option<String>` qui renvoie `None` pour un outil qui n'est pas le sien. Puis l'ajouter à `providers()` et à `dispatch()` dans `toolsets.rs`. Un test vérifie qu'aucun outil n'est déclaré deux fois. Tout ce qui touche une fenêtre passe par le broker.

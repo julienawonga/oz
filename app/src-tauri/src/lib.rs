@@ -21,6 +21,7 @@ mod places;
 mod prefs;
 mod skills;
 mod tools;
+mod toolsets;
 mod vision;
 mod voice;
 mod volume;
@@ -123,6 +124,8 @@ pub fn run() {
             volume::mute_system,
             volume::duck_others,
             skills::get_skills,
+            toolsets::get_toolsets,
+            toolsets::set_toolset_enabled,
             kernel::exec_decision,
             kernel::get_custom_tools,
             kernel::delete_custom_tool,

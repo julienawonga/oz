@@ -417,7 +417,23 @@ pub(crate) async fn use_tool(app: &AppHandle, name: &str, args: &Value) -> Strin
 
 /// Bloc ajouté aux consignes : la boîte à outils et la manière de s'en servir.
 pub(crate) fn prompt_block(app: &AppHandle) -> String {
+    let kernel = crate::toolsets::enabled(app, "kernel");
+    let workshop = crate::toolsets::enabled(app, "workshop");
+    if !kernel && !workshop {
+        return String::new();
+    }
+    if !workshop {
+        return " Tu as un atelier (un dossier à toi) et des outils de base : read_file, write_file, edit_file, \
+                run_command (PowerShell, avec l'accord de Julien sauf lecture simple)."
+            .into();
+    }
     let mut s = String::from(
+        " Ta liste d'outils n'est pas une limite : avant de répondre que tu ne sais pas ou ne peux pas faire quelque \
+         chose sur l'ordinateur (réduire une fenêtre, ouvrir une appli, lire une info du système...), cherche comment \
+         le faire en PowerShell et fabrique-toi un outil avec create_tool (Julien validera). Dis seulement « je ne \
+         peux pas » si même PowerShell ne le permet pas.",
+    );
+    s.push_str(
         " Tu as aussi un atelier (un dossier à toi) et des outils de base : read_file, write_file, edit_file, \
          run_command (PowerShell). Quand aucun de tes outils ne couvre une demande, ne dis pas que tu ne peux pas : \
          fabrique-toi un outil avec create_tool (code PowerShell + un test), puis utilise-le. Un outil est GÉNÉRIQUE : \
@@ -445,8 +461,48 @@ pub(crate) fn prompt_block(app: &AppHandle) -> String {
     s
 }
 
-/// Déclarations des outils du noyau (ajoutées à `tools::declarations`).
-pub(crate) fn declarations() -> Vec<Value> {
+/// Toolsets du noyau : fichiers et PowerShell, puis l'atelier (outils
+/// fabriqués par Oz).
+pub(crate) fn toolsets() -> Vec<crate::toolsets::Toolset> {
+    let (workshop, kernel): (Vec<Value>, Vec<Value>) = declarations()
+        .into_iter()
+        .partition(|d| d["name"] == "create_tool" || d["name"] == "use_tool");
+    vec![
+        crate::toolsets::Toolset {
+            id: "kernel",
+            label: "Noyau",
+            description: "Lire, écrire, modifier les fichiers de son atelier et lancer du PowerShell (avec ton accord, sauf lecture simple).",
+            core: false,
+            tools: kernel,
+        },
+        crate::toolsets::Toolset {
+            id: "workshop",
+            label: "Atelier",
+            description: "Se fabriquer ses propres outils PowerShell, testés après ton accord, et s'en servir.",
+            core: false,
+            tools: workshop,
+        },
+    ]
+}
+
+/// Outils du noyau. None : pas un outil de ce module.
+pub(crate) async fn run(app: &AppHandle, name: &str, args: &Value) -> Option<String> {
+    let arg = |k: &str| args[k].as_str().unwrap_or("").trim().to_string();
+    Some(match name {
+        "read_file" => read_file(app, &arg("path")),
+        "write_file" => write_file(app, &arg("path"), args["content"].as_str().unwrap_or("")),
+        "edit_file" => edit_file(app, &arg("path"), args["old"].as_str().unwrap_or(""), args["new"].as_str().unwrap_or("")),
+        "run_command" => run_command(app, &arg("command")).await,
+        "create_tool" => create_tool(app, args),
+        "use_tool" => {
+            let a: Value = serde_json::from_str(&arg("arguments")).unwrap_or(json!({}));
+            use_tool(app, &arg("name"), &a).await
+        }
+        _ => return None,
+    })
+}
+
+fn declarations() -> Vec<Value> {
     vec![
         json!({
             "name": "read_file",

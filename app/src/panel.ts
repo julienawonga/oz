@@ -6,6 +6,7 @@ import { renderJournal } from "./panel/journal";
 import { renderMemory } from "./panel/memory";
 import { renderPerms } from "./panel/perms";
 import { leaveSkills, renderSkills } from "./panel/skills";
+import { renderToolsets } from "./panel/toolsets";
 import { kbd, renderSettings } from "./panel/settings";
 import { content, esc, view } from "./panel/util";
 import { renderZones } from "./panel/zones";
@@ -39,6 +40,7 @@ async function renderAsync(): Promise<void> {
   if (view.tab === "settings") return renderSettings();
   if (view.tab === "memory") return renderMemory();
   if (view.tab === "skills") return renderSkills();
+  if (view.tab === "toolsets") return renderToolsets();
   if (view.tab === "journal") return renderJournal();
 }
 

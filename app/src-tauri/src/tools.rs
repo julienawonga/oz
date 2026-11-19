@@ -11,164 +11,198 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::brain::BrainState;
 use crate::broker::{execute_action, BrokerState};
 use crate::journal::log_event;
+use crate::toolsets::Toolset;
 use crate::zones::{Zone, ZonesState};
 
-/// Déclarations envoyées à Gemini (champ `tools`).
-pub(crate) fn declarations() -> Value {
-    let mut decl = json!([{ "functionDeclarations": [
-        {
-            "name": "list_windows",
-            "description": "Liste les applications et fenêtres ouvertes sur l'écran de Julien."
+/// Toolsets natifs d'Oz (fenêtres, vision, corps, expression,
+/// conversation). Le registre est dans `toolsets.rs`.
+pub(crate) fn toolsets() -> Vec<Toolset> {
+    vec![
+        Toolset {
+            id: "windows",
+            label: "Fenêtres",
+            description: "Lister, fermer et ramener tes fenêtres, toujours derrière les permissions.",
+            core: false,
+            tools: vec![
+            json!({
+                "name": "list_windows",
+                "description": "Liste les applications et fenêtres ouvertes sur l'écran de Julien."
+            }),
+            json!({
+                "name": "close_window",
+                "description": "Ferme une fenêtre ou une application de Julien. À n'utiliser que s'il le demande clairement.",
+                "parameters": {"type": "object", "properties": {
+                    "target": {"type": "string", "description": "Nom de l'application ou mot du titre de la fenêtre, par exemple chrome, spotify, bloc-notes."}
+                }, "required": ["target"]}
+            }),
+            json!({
+                "name": "focus_window",
+                "description": "Ramène une fenêtre ou une application au premier plan.",
+                "parameters": {"type": "object", "properties": {
+                    "target": {"type": "string", "description": "Nom de l'application ou mot du titre de la fenêtre."}
+                }, "required": ["target"]}
+            }),
+            ],
         },
-        {
-            "name": "close_window",
-            "description": "Ferme une fenêtre ou une application de Julien. À n'utiliser que s'il le demande clairement.",
-            "parameters": {"type": "object", "properties": {
-                "target": {"type": "string", "description": "Nom de l'application ou mot du titre de la fenêtre, par exemple chrome, spotify, bloc-notes."}
-            }, "required": ["target"]}
+        Toolset {
+            id: "vision",
+            label: "Vision",
+            description: "Regarder une fenêtre autorisée, ou la suivre en direct pendant que tu parles.",
+            core: false,
+            tools: vec![
+            json!({
+                "name": "look_at_window",
+                "description": "Fait une capture d'une fenêtre et la décrit. Sert dès que Julien demande ce qu'il y a sur son écran, ce que tu vois, ou de l'aide sur ce qu'il fait. Inutile pour la fenêtre que tu regardes déjà en direct (watch_with_me) : tu la vois.",
+                "parameters": {"type": "object", "properties": {
+                    "target": {"type": "string", "description": "Application ou mot du titre à regarder. Vide pour la fenêtre au premier plan."},
+                    "question": {"type": "string", "description": "Ce qu'il faut chercher ou expliquer dans la capture."}
+                }}
+            }),
+            json!({
+                "name": "watch_with_me",
+                "description": "Vue en direct : tu vois une fenêtre en continu pendant que Julien te parle, pour suivre ce qu'il fait et réagir tout de suite. commencer : quand il te demande de regarder avec lui, de suivre ce qu'il fait, de garder un œil sur une fenêtre. arreter : quand il te demande d'arrêter de regarder. Une seule fenêtre à la fois.",
+                "parameters": {"type": "object", "properties": {
+                    "action": {"type": "string", "enum": ["commencer", "arreter"]},
+                    "target": {"type": "string", "description": "Application ou mot du titre. Vide pour la fenêtre que Julien utilise."}
+                }, "required": ["action"]}
+            }),
+            ],
         },
-        {
-            "name": "focus_window",
-            "description": "Ramène une fenêtre ou une application au premier plan.",
-            "parameters": {"type": "object", "properties": {
-                "target": {"type": "string", "description": "Nom de l'application ou mot du titre de la fenêtre."}
-            }, "required": ["target"]}
+        Toolset {
+            id: "body",
+            label: "Corps",
+            description: "Se déplacer, s'asseoir, faire des figures, lieux nommés, zones interdites, plan et mode de déplacement.",
+            core: false,
+            tools: vec![
+            json!({
+                "name": "move",
+                "description": "Déplace Oz (toi, le petit œuf) sur l'écran.",
+                "parameters": {"type": "object", "properties": {
+                    "direction": {"type": "string", "enum": ["gauche", "droite", "haut", "bas", "centre", "haut gauche", "haut droite", "bas gauche", "bas droite"]}
+                }, "required": ["direction"]}
+            }),
+            json!({
+                "name": "set_pose",
+                "description": "Change la posture d'Oz.",
+                "parameters": {"type": "object", "properties": {
+                    "pose": {"type": "string", "enum": ["assis", "debout"]}
+                }, "required": ["pose"]}
+            }),
+            json!({
+                "name": "do_trick",
+                "description": "Oz (toi, le petit œuf) fait une figure pour s'amuser ou faire le spectacle. Trajets sur l'écran : zigzag, cercle, huit, vague, spirale. Sur place : toupie (tourne sur lui-même), salto, demi_tour (se retourne, montre son dos puis revient), saut. danse : un enchaînement de plusieurs figures. Avec « vers », Oz va à cet endroit en faisant la figure (« va en bas à droite en zigzag »). Tu peux appeler l'outil plusieurs fois pour enchaîner.",
+                "parameters": {"type": "object", "properties": {
+                    "figure": {"type": "string", "enum": ["zigzag", "cercle", "huit", "vague", "spirale", "toupie", "salto", "demi_tour", "saut", "danse"]},
+                    "towards": {"type": "string", "description": "Destination facultative : une direction (gauche, droite, haut, bas, centre, haut gauche, haut droite, bas gauche, bas droite) ou le nom d'un lieu enregistré."}
+                }, "required": ["figure"]}
+            }),
+            json!({
+                "name": "places",
+                "description": "Lieux nommés de l'écran, propres à Oz et Julien (« ta maison », « le travail »). nommer_ici : donne ce nom à l'endroit où se trouve Oz maintenant (si Julien nomme un endroit où tu n'es pas, va d'abord y aller avec move). aller : Oz glisse jusqu'au lieu. lister : les lieux connus. oublier : supprime un lieu.",
+                "parameters": {"type": "object", "properties": {
+                    "operation": {"type": "string", "enum": ["nommer_ici", "aller", "lister", "oublier"]},
+                    "name": {"type": "string", "description": "Nom du lieu, par exemple maison, travail."}
+                }, "required": ["operation"]}
+            }),
+            json!({
+                "name": "no_go_zone",
+                "description": "Gère les zones de l'écran où Oz n'a pas le droit d'aller. interdire_ici : l'endroit où se trouve Oz devient interdit. autoriser_ici : retire la zone à cet endroit. compter : combien de zones existent.",
+                "parameters": {"type": "object", "properties": {
+                    "operation": {"type": "string", "enum": ["interdire_ici", "autoriser_ici", "compter"]}
+                }, "required": ["operation"]}
+            }),
+            json!({
+                "name": "set_layer",
+                "description": "Où Oz se place par rapport aux fenêtres. derriere : Oz passe derrière toutes les fenêtres, sur le bureau (quand Julien te demande de te mettre en arrière-plan, derrière les fenêtres, de ne plus le gêner). devant : Oz repasse au-dessus de toutes les fenêtres.",
+                "parameters": {"type": "object", "properties": {
+                    "layer": {"type": "string", "enum": ["devant", "derriere"]}
+                }, "required": ["layer"]}
+            }),
+            json!({
+                "name": "set_movement_mode",
+                "description": "Comment Oz se déplace de lui-même. libre : il se balade sur l'écran. fixe : il reste où il est. bord : il se pose au bord de l'écran le plus proche et y reste. concentration : il se fait petit et discret dans un coin, ne bouge plus et ne prend plus la parole de lui-même (quand Julien veut se concentrer, travailler tranquille).",
+                "parameters": {"type": "object", "properties": {
+                    "mode": {"type": "string", "enum": ["libre", "fixe", "bord", "concentration"]}
+                }, "required": ["mode"]}
+            }),
+            ],
         },
-        {
-            "name": "look_at_window",
-            "description": "Fait une capture d'une fenêtre et la décrit. Sert dès que Julien demande ce qu'il y a sur son écran, ce que tu vois, ou de l'aide sur ce qu'il fait. Inutile pour la fenêtre que tu regardes déjà en direct (watch_with_me) : tu la vois.",
-            "parameters": {"type": "object", "properties": {
-                "target": {"type": "string", "description": "Application ou mot du titre à regarder. Vide pour la fenêtre au premier plan."},
-                "question": {"type": "string", "description": "Ce qu'il faut chercher ou expliquer dans la capture."}
-            }}
+        Toolset {
+            id: "expression",
+            label: "Expression",
+            description: "Émotions sur son visage et changement d'apparence.",
+            core: false,
+            tools: vec![
+            json!({
+                "name": "express_emotion",
+                "description": "Montre ce que tu ressens sur ton visage, avec des bulles qui s'envolent de toi. Appelle-le EN MÊME TEMPS que ta réponse quand tu ressens quelque chose de net (tu ris, tu es gêné, fâché pour de faux, fier, attendri, surpris...), pas à chaque phrase.",
+                "parameters": {"type": "object", "properties": {
+                    "emotion": {"type": "string", "enum": ["joie", "rire", "colere", "tristesse", "surprise", "amour", "douceur", "gene", "reflexion", "ennui", "fierte", "malice"]},
+                    "intensity": {"type": "integer", "description": "1 léger, 2 net, 3 fort"}
+                }, "required": ["emotion"]}
+            }),
+            json!({
+                "name": "customize_egg",
+                "description": "Change l'apparence d'Oz : sa couleur et/ou sa texture, quand Julien le demande. Traduis la couleur demandée en code #rrggbb (rose : #f472b6, vert : #4ade80, violet : #a78bfa, orange : #fb923c, rouge : #f87171, jaune : #facc15...) ; « origine » remet le bleu d'origine.",
+                "parameters": {"type": "object", "properties": {
+                    "color": {"type": "string", "description": "#rrggbb, ou « origine »"},
+                    "texture": {"type": "string", "enum": ["lisse", "points", "rayures", "etoiles", "taches"]}
+                }}
+            }),
+            ],
         },
-        {
-            "name": "move",
-            "description": "Déplace Oz (toi, le petit œuf) sur l'écran.",
-            "parameters": {"type": "object", "properties": {
-                "direction": {"type": "string", "enum": ["gauche", "droite", "haut", "bas", "centre", "haut gauche", "haut droite", "bas gauche", "bas droite"]}
-            }, "required": ["direction"]}
-        },
-        {
-            "name": "set_pose",
-            "description": "Change la posture d'Oz.",
-            "parameters": {"type": "object", "properties": {
-                "pose": {"type": "string", "enum": ["assis", "debout"]}
-            }, "required": ["pose"]}
-        },
-        {
-            "name": "express_emotion",
-            "description": "Montre ce que tu ressens sur ton visage, avec des bulles qui s'envolent de toi. Appelle-le EN MÊME TEMPS que ta réponse quand tu ressens quelque chose de net (tu ris, tu es gêné, fâché pour de faux, fier, attendri, surpris...), pas à chaque phrase.",
-            "parameters": {"type": "object", "properties": {
-                "emotion": {"type": "string", "enum": ["joie", "rire", "colere", "tristesse", "surprise", "amour", "douceur", "gene", "reflexion", "ennui", "fierte", "malice"]},
-                "intensity": {"type": "integer", "description": "1 léger, 2 net, 3 fort"}
-            }, "required": ["emotion"]}
-        },
-        {
-            "name": "set_movement_mode",
-            "description": "Comment Oz se déplace de lui-même. libre : il se balade sur l'écran. fixe : il reste où il est. bord : il se pose au bord de l'écran le plus proche et y reste. concentration : il se fait petit et discret dans un coin, ne bouge plus et ne prend plus la parole de lui-même (quand Julien veut se concentrer, travailler tranquille).",
-            "parameters": {"type": "object", "properties": {
-                "mode": {"type": "string", "enum": ["libre", "fixe", "bord", "concentration"]}
-            }, "required": ["mode"]}
-        },
-        {
-            "name": "customize_egg",
-            "description": "Change l'apparence d'Oz : sa couleur et/ou sa texture, quand Julien le demande. Traduis la couleur demandée en code #rrggbb (rose : #f472b6, vert : #4ade80, violet : #a78bfa, orange : #fb923c, rouge : #f87171, jaune : #facc15...) ; « origine » remet le bleu d'origine.",
-            "parameters": {"type": "object", "properties": {
-                "color": {"type": "string", "description": "#rrggbb, ou « origine »"},
-                "texture": {"type": "string", "enum": ["lisse", "points", "rayures", "etoiles", "taches"]}
-            }}
-        },
-        {
-            "name": "set_layer",
-            "description": "Où Oz se place par rapport aux fenêtres. derriere : Oz passe derrière toutes les fenêtres, sur le bureau (quand Julien te demande de te mettre en arrière-plan, derrière les fenêtres, de ne plus le gêner). devant : Oz repasse au-dessus de toutes les fenêtres.",
-            "parameters": {"type": "object", "properties": {
-                "layer": {"type": "string", "enum": ["devant", "derriere"]}
-            }, "required": ["layer"]}
-        },
-        {
-            "name": "no_go_zone",
-            "description": "Gère les zones de l'écran où Oz n'a pas le droit d'aller. interdire_ici : l'endroit où se trouve Oz devient interdit. autoriser_ici : retire la zone à cet endroit. compter : combien de zones existent.",
-            "parameters": {"type": "object", "properties": {
-                "operation": {"type": "string", "enum": ["interdire_ici", "autoriser_ici", "compter"]}
-            }, "required": ["operation"]}
-        },
-        {
-            "name": "do_trick",
-            "description": "Oz (toi, le petit œuf) fait une figure pour s'amuser ou faire le spectacle. Trajets sur l'écran : zigzag, cercle, huit, vague, spirale. Sur place : toupie (tourne sur lui-même), salto, demi_tour (se retourne, montre son dos puis revient), saut. danse : un enchaînement de plusieurs figures. Avec « vers », Oz va à cet endroit en faisant la figure (« va en bas à droite en zigzag »). Tu peux appeler l'outil plusieurs fois pour enchaîner.",
-            "parameters": {"type": "object", "properties": {
-                "figure": {"type": "string", "enum": ["zigzag", "cercle", "huit", "vague", "spirale", "toupie", "salto", "demi_tour", "saut", "danse"]},
-                "towards": {"type": "string", "description": "Destination facultative : une direction (gauche, droite, haut, bas, centre, haut gauche, haut droite, bas gauche, bas droite) ou le nom d'un lieu enregistré."}
-            }, "required": ["figure"]}
-        },
-        {
-            "name": "places",
-            "description": "Lieux nommés de l'écran, propres à Oz et Julien (« ta maison », « le travail »). nommer_ici : donne ce nom à l'endroit où se trouve Oz maintenant (si Julien nomme un endroit où tu n'es pas, va d'abord y aller avec move). aller : Oz glisse jusqu'au lieu. lister : les lieux connus. oublier : supprime un lieu.",
-            "parameters": {"type": "object", "properties": {
-                "operation": {"type": "string", "enum": ["nommer_ici", "aller", "lister", "oublier"]},
-                "name": {"type": "string", "description": "Nom du lieu, par exemple maison, travail."}
-            }, "required": ["operation"]}
-        },
-        {
-            "name": "watch_with_me",
-            "description": "Vue en direct : tu vois une fenêtre en continu pendant que Julien te parle, pour suivre ce qu'il fait et réagir tout de suite. commencer : quand il te demande de regarder avec lui, de suivre ce qu'il fait, de garder un œil sur une fenêtre. arreter : quand il te demande d'arrêter de regarder. Une seule fenêtre à la fois.",
-            "parameters": {"type": "object", "properties": {
-                "action": {"type": "string", "enum": ["commencer", "arreter"]},
-                "target": {"type": "string", "description": "Application ou mot du titre. Vide pour la fenêtre que Julien utilise."}
-            }, "required": ["action"]}
-        },
-        {
-            "name": "read_skill",
-            "description": "Charge les instructions complètes d'un de tes skills (la liste est dans tes consignes). À appeler dès que la situation correspond à la description d'un skill, avant d'agir ou de répondre.",
-            "parameters": {"type": "object", "properties": {
-                "name": {"type": "string", "description": "Nom du skill, tel qu'il apparaît dans la liste."}
-            }, "required": ["name"]}
-        },
-        {
-            "name": "volume",
-            "description": "Volume du son de l'ordinateur. monter / baisser : de 10 points par défaut, ou de valeur. regler : met le volume à valeur (0 à 100). niveau : dit où en est le volume. couper : coupe le son juste après ta réponse (dis un mot très bref). remettre : remet le son.",
-            "parameters": {"type": "object", "properties": {
-                "action": {"type": "string", "enum": ["monter", "baisser", "regler", "niveau", "couper", "remettre"]},
-                "value": {"type": "integer", "description": "Pas en points pour monter/baisser, niveau cible pour regler."}
-            }, "required": ["action"]}
-        },
-        {
-            "name": "end_conversation",
-            "description": "Julien met fin à la conversation (« tais-toi », « c'est fini », « laisse tomber », « à plus », « merci c'est tout ») : tu dis un mot très bref et tu arrêtes de l'écouter. Il rouvrira la conversation en cliquant sur l'œuf."
-        },
-        {
-            "name": "not_now",
-            "description": "Julien ne veut pas être dérangé : Oz ne prendra plus la parole de lui-même pendant un moment, et la conversation en cours s'arrête. À utiliser quand il dit qu'il est occupé, concentré, en réunion, ou te demande de le laisser tranquille un moment.",
-            "parameters": {"type": "object", "properties": {
-                "minutes": {"type": "integer", "description": "Durée du silence demandée, 60 par défaut."}
-            }}
+        Toolset {
+            id: "conversation",
+            label: "Conversation",
+            description: "Finir une conversation, se taire un moment. Toujours actif.",
+            core: true,
+            tools: vec![
+            json!({
+                "name": "end_conversation",
+                "description": "Julien met fin à la conversation (« tais-toi », « c'est fini », « laisse tomber », « à plus », « merci c'est tout ») : tu dis un mot très bref et tu arrêtes de l'écouter. Il rouvrira la conversation en cliquant sur l'œuf."
+            }),
+            json!({
+                "name": "not_now",
+                "description": "Julien ne veut pas être dérangé : Oz ne prendra plus la parole de lui-même pendant un moment, et la conversation en cours s'arrête. À utiliser quand il dit qu'il est occupé, concentré, en réunion, ou te demande de le laisser tranquille un moment.",
+                "parameters": {"type": "object", "properties": {
+                    "minutes": {"type": "integer", "description": "Durée du silence demandée, 60 par défaut."}
+                }}
+            }),
+            ],
         }
-    ]}]);
-    // noyau : fichiers, PowerShell, outils fabriqués par Oz
-    if let Some(list) = decl[0]["functionDeclarations"].as_array_mut() {
-        list.extend(crate::kernel::declarations());
-    }
-    decl
+    ]
+}
+
+/// Déclarations envoyées à Gemini : les toolsets actifs.
+pub(crate) fn declarations(app: &AppHandle) -> Value {
+    crate::toolsets::declarations(app)
 }
 
 /// Exécute un appel d'outil et renvoie le résultat (texte lu par le modèle).
 pub(crate) async fn run(app: &AppHandle, name: &str, args: &Value) -> String {
     log_event(app, "tool", &format!("{name} {args}"));
-    let result = dispatch(app, name, args).await;
+    let result = guarded(app, name, args).await;
     // le résultat aussi : sans lui, un outil qui échoue reste invisible
     log_event(app, "tool", &format!("{name} -> {}", result.chars().take(160).collect::<String>()));
     result
 }
 
-async fn dispatch(app: &AppHandle, name: &str, args: &Value) -> String {
-    let arg = |k: &str| args[k].as_str().unwrap_or("").trim().to_string();
+/// Garde-fous communs, puis le registre (toolset actif ?) et l'outil.
+async fn guarded(app: &AppHandle, name: &str, args: &Value) -> String {
     // 🔐 après « arrête de regarder », le code bloque tout regard
-    let wants_look = name == "look_at_window" || (name == "watch_with_me" && arg("action") != "arreter");
+    let action = args["action"].as_str().unwrap_or("");
+    let wants_look = name == "look_at_window" || (name == "watch_with_me" && action != "arreter");
     if wants_look && crate::watch::look_paused() {
         log_event(app, "watch", &format!("regard bloqué pendant la pause : {name}"));
         return crate::kernel::ask_look(app, name, args);
     }
-    match name {
+    crate::toolsets::dispatch(app, name, args).await
+}
+
+/// Outils natifs. None : pas un outil de ce module.
+pub(crate) async fn run_builtin(app: &AppHandle, name: &str, args: &Value) -> Option<String> {
+    let arg = |k: &str| args[k].as_str().unwrap_or("").trim().to_string();
+    let out: String = match name {
         "list_windows" => {
             execute_action(&app.state::<BrokerState>(), app, "list", "")
         }
@@ -217,22 +251,6 @@ async fn dispatch(app: &AppHandle, name: &str, args: &Value) -> String {
         }
         "places" => crate::places::tool(app, &arg("operation"), &arg("name")),
         "watch_with_me" => crate::watch::tool(app, &arg("action"), &arg("target").to_lowercase()),
-        "volume" => crate::volume::tool(app, &arg("action"), args["value"].as_i64()),
-        "read_skill" => crate::skills::tool(app, &arg("name")),
-        "read_file" => crate::kernel::read_file(app, &arg("path")),
-        "write_file" => crate::kernel::write_file(app, &arg("path"), args["content"].as_str().unwrap_or("")),
-        "edit_file" => crate::kernel::edit_file(
-            app,
-            &arg("path"),
-            args["old"].as_str().unwrap_or(""),
-            args["new"].as_str().unwrap_or(""),
-        ),
-        "run_command" => crate::kernel::run_command(app, &arg("command")).await,
-        "create_tool" => crate::kernel::create_tool(app, args),
-        "use_tool" => {
-            let a: Value = serde_json::from_str(&arg("arguments")).unwrap_or(json!({}));
-            crate::kernel::use_tool(app, &arg("name"), &a).await
-        }
         "set_pose" => {
             let _ = app.emit("oz://do", json!({"action": "pose", "pose": arg("pose")}));
             "Pose changée.".into()
@@ -269,7 +287,7 @@ async fn dispatch(app: &AppHandle, name: &str, args: &Value) -> String {
             let couleur = arg("color");
             let texture = arg("texture");
             if !couleur.is_empty() && couleur != "origine" && !crate::prefs::is_hex_color(&couleur) {
-                return format!("Couleur « {couleur} » invalide : donne-la en #rrggbb.");
+                return Some(format!("Couleur « {couleur} » invalide : donne-la en #rrggbb."));
             }
             match crate::prefs::update(app, |p| {
                 if couleur == "origine" {
@@ -299,8 +317,9 @@ async fn dispatch(app: &AppHandle, name: &str, args: &Value) -> String {
             stop_watching(app);
             crate::initiative::snooze(app, args["minutes"].as_u64().unwrap_or(60))
         }
-        other => format!("Outil inconnu : {other}"),
-    }
+        _ => return None,
+    };
+    Some(out)
 }
 
 /// Place de l'œuf dans sa fenêtre, en pixels logiques (voir #stage et

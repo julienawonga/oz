@@ -39,6 +39,9 @@ pub struct Prefs {
     /// Julien peut couper la parole à Oz en parlant par-dessus lui.
     #[serde(default = "yes")]
     pub barge_in: bool,
+    /// Toolsets coupés dans l'onglet Outils (voir toolsets.rs).
+    #[serde(default)]
+    pub disabled_toolsets: Vec<String>,
 }
 
 pub(crate) const MOVE_MODES: &[&str] = &["libre", "fixe", "bord", "concentration"];
@@ -73,6 +76,7 @@ impl Default for Prefs {
             egg_color: String::new(),
             egg_texture: default_texture(),
             barge_in: true,
+            disabled_toolsets: Vec::new(),
         }
     }
 }

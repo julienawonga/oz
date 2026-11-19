@@ -259,3 +259,26 @@ pub(crate) fn recover_at_startup(app: &AppHandle) {
 pub(crate) fn restore_on_exit() {
     let _ = restore();
 }
+
+// ── Toolset « Son » ──
+
+pub(crate) fn toolsets() -> Vec<crate::toolsets::Toolset> {
+    vec![crate::toolsets::Toolset {
+        id: "sound",
+        label: "Son",
+        description: "Régler le volume de l'ordinateur à la voix.",
+        core: false,
+        tools: vec![serde_json::json!({
+            "name": "volume",
+            "description": "Volume du son de l'ordinateur. monter / baisser : de 10 points par défaut, ou de valeur. regler : met le volume à valeur (0 à 100). niveau : dit où en est le volume. couper : coupe le son juste après ta réponse (dis un mot très bref). remettre : remet le son.",
+            "parameters": {"type": "object", "properties": {
+                "action": {"type": "string", "enum": ["monter", "baisser", "regler", "niveau", "couper", "remettre"]},
+                "value": {"type": "integer", "description": "Pas en points pour monter/baisser, niveau cible pour regler."}
+            }, "required": ["action"]}
+        })],
+    }]
+}
+
+pub(crate) fn run(app: &AppHandle, name: &str, args: &serde_json::Value) -> Option<String> {
+    (name == "volume").then(|| tool(app, args["action"].as_str().unwrap_or("").trim(), args["value"].as_i64()))
+}
