@@ -462,7 +462,7 @@ button:focus-visible {
 #robot.focus-mode:hover { opacity: 0.95; }
 #robot.focus-mode #robot-body { animation-duration: 5s; }
 
-/* ── Émotions (outil exprimer_emotion) ── */
+/* ── Émotions (outil express_emotion) ── */
 .brow {
   position: absolute;
   top: 26px;

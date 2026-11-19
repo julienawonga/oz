@@ -3,7 +3,7 @@ import { content, esc, fmtTs, icon, pageHead, toast } from "./util";
 
 // ── Skills ──
 // Savoir-faire écrits en texte : Oz voit leur nom et leur description, et
-// charge les instructions (outil lire_skill) quand la situation s'y prête.
+// charge les instructions (outil read_skill) quand la situation s'y prête.
 
 interface Skill {
   id: string;

@@ -18,8 +18,8 @@ Le frontend n'a aucune logique de sécurité. Il appelle des commandes Rust (`in
 | `voice.rs` | Sessions Gemini Live (conversation et lecture), micro, consignes `live_prompt`, whisper. |
 | `initiative.rs` | Oz engage la conversation : signaux, garde-fous, jugement par Gemini. |
 | `prefs.rs` | Réglages : langue, raccourci du micro, transcription, initiative, interruption à la voix, mode de déplacement, devant/derrière les fenêtres, couleur et texture. |
-| `skills.rs` | Skills (`skills/<id>/SKILL.md`) : liste dans les consignes, outil `lire_skill`, relecture du journal qui propose des skills (toutes les 3 consolidations). |
-| `kernel.rs` | Noyau à la Pi : fichiers de l'atelier, PowerShell avec accord, outils fabriqués par Oz (`creer_outil`, `utiliser_outil`), demandes d'accord et leur résultat renvoyé dans la conversation. |
+| `skills.rs` | Skills (`skills/<id>/SKILL.md`) : liste dans les consignes, outil `read_skill`, relecture du journal qui propose des skills (toutes les 3 consolidations). |
+| `kernel.rs` | Noyau à la Pi : fichiers de l'atelier, PowerShell avec accord, outils fabriqués par Oz (`create_tool`, `use_tool`), demandes d'accord et leur résultat renvoyé dans la conversation. |
 | `volume.rs` | Volume du système et baisse automatique des autres applis pendant l'écoute (sessions audio Windows, Oz et ses processus WebView2 épargnés). |
 | `places.rs` | Lieux nommés (« la maison »). |
 | `memory.rs` | Faits durables, épisodes, souvenirs sur les fenêtres, consolidation (Gemini ou Ollama). |
@@ -88,5 +88,5 @@ On parle à Oz et la transcription se trompe parfois : rien de risqué ne part s
 - **Écrire, modifier** : seulement dans l'atelier (chemin relatif, sans `..`).
 - **Lire** : libre dans l'atelier ; ailleurs, accord de Julien.
 - **Exécuter** : un enchaînement de cmdlets de lecture d'une courte liste (`Get-Process`, `Get-Date`, `Select-Object`…), sans variable, bloc ni redirection, passe seul. Tout le reste est affiché sur l'œuf et attend l'accord ; le résultat revient ensuite dans la conversation (`live_prompt`). Délai de 25 s, sortie tronquée.
-- **Outils fabriqués** : `creer_outil` enregistre un script PowerShell avec un test. Le test tourne après accord ; l'outil n'est adopté que s'il sort sans erreur et affiche le texte attendu. Le script exact approuvé tourne ensuite sans redemander ; la moindre modification redemande un accord. Au plus 25 outils.
-- Les outils de la session Live sont fixés à son ouverture : un outil fabriqué se lance par l'outil générique `utiliser_outil`, et la liste des outils adoptés est donnée dans les consignes.
+- **Outils fabriqués** : `create_tool` enregistre un script PowerShell avec un test. Le test tourne après accord ; l'outil n'est adopté que s'il sort sans erreur et affiche le texte attendu. Le script exact approuvé tourne ensuite sans redemander ; la moindre modification redemande un accord. Au plus 25 outils.
+- Les outils de la session Live sont fixés à son ouverture : un outil fabriqué se lance par l'outil générique `use_tool`, et la liste des outils adoptés est donnée dans les consignes.

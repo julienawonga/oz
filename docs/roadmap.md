@@ -30,7 +30,7 @@
 - Oz réagit de lui-même avec une émotion à ce qu'il voit ou entend (aujourd'hui, seulement quand il répond).
 - Oz réagit de lui-même à ce qu'il voit pendant « Regarde avec moi ».
 - Outils pour les modèles locaux (Ollama), pour retirer le dernier routeur par mots-clés.
-- Vérifier si la reprise de session Live accepte une nouvelle liste d'outils (aujourd'hui, les outils fabriqués passent par `utiliser_outil`).
+- Vérifier si la reprise de session Live accepte une nouvelle liste d'outils (aujourd'hui, les outils fabriqués passent par `use_tool`).
 
 ## Plus loin
 

@@ -2,7 +2,7 @@ import { applyPose, eggBounds, moveWindowTo } from "./motion";
 import { state } from "./state";
 import { robot } from "./ui";
 
-// ── Figures : petits numéros d'Oz (outil Gemini « faire_une_figure ») ──
+// ── Figures : petits numéros d'Oz (outil Gemini « do_trick ») ──
 // Deux familles :
 //  · trajets : la FENÊTRE suit une courbe (zigzag, cercle, huit...) ;
 //  · sur place : le CORPS s'anime en CSS (toupie, salto, demi-tour...).

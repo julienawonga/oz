@@ -24,7 +24,7 @@ Le serveur ferme la session après environ 2 minutes sans parole. Elle se rouvre
 |---|---|
 | Clic sur l'œuf | Clic sur l'œuf |
 | Raccourci global (**Ctrl+Shift+Espace** par défaut, réglable) | Le raccourci |
-| Oz t'appelle de lui-même (voir *Initiative*) | « Tais-toi », « c'est fini », « pas maintenant » : outil `finir_conversation` ou `pas_maintenant`, le micro se coupe après sa réponse |
+| Oz t'appelle de lui-même (voir *Initiative*) | « Tais-toi », « c'est fini », « pas maintenant » : outil `end_conversation` ou `not_now`, le micro se coupe après sa réponse |
 | | 8 s de silence après une phrase, 15 s si rien n'a été dit |
 
 Si Oz parle, un clic ou le raccourci lui coupe la parole. Échap coupe sa voix et annule une prise de parole en cours, sans fermer le micro.
@@ -49,7 +49,7 @@ Module `initiative.rs` (backend) et `egg/initiative.ts` (mise en scène).
 
 1. **Signaux** mesurés toutes les 15 s, sans mot-clé : premier usage du jour, retour après 15 min d'absence (clavier et souris), 50 min de travail sans échange.
 2. **Garde-fous** dans le code : réglage coupé, « pas maintenant » (60 min par défaut), conversation dans les 3 dernières minutes, 12 min entre deux initiatives (+ 25 min par appel ignoré d'affilée), 3 par heure, fenêtre en plein écran. Chaque blocage est écrit dans le journal avec sa raison.
-3. **Jugement** par Gemini (contexte : signal, heure, fenêtre active hors sanctuaire, mémoire, derniers échanges) : `prendre_la_parole` ou `rester_silencieux`.
+3. **Jugement** par Gemini (contexte : signal, heure, fenêtre active hors sanctuaire, mémoire, derniers échanges) : `speak_up` ou `stay_silent`.
 4. **Mise en scène** :
    - *appeler* : micro ouvert, Oz appelle Julien par son prénom jusqu'à trois fois (consignes `[Note interne]` envoyées par `live_prompt`) ; dès que Julien répond, il enchaîne sur son sujet ;
    - *lever la main* : point bleu qui pulse au-dessus de l'œuf et deux notes douces ; un clic et il parle ; ignoré au bout de 90 s.
@@ -59,10 +59,10 @@ Le bouton *Essayer maintenant* du panneau passe les garde-fous de rythme (pas ce
 
 ## Regarde avec moi : la vue en direct
 
-Module `watch.rs`. Julien demande « regarde Chrome avec moi » : l'outil `regarder_avec_moi` (action *commencer*) choisit la fenêtre (vide = celle qu'il utilise) et vérifie qu'Oz a le droit de la regarder, exactement comme la vision.
+Module `watch.rs`. Julien demande « regarde Chrome avec moi » : l'outil `watch_with_me` (action *commencer*) choisit la fenêtre (vide = celle qu'il utilise) et vérifie qu'Oz a le droit de la regarder, exactement comme la vision.
 
 - Une image JPEG par seconde part dans la session vocale (`realtimeInput.video`), **seulement pendant une conversation** (un morceau de micro dans les 20 dernières secondes). Sans conversation, rien n'est envoyé et la session n'est pas gardée ouverte.
-- Oz répond sur ce qu'il voit sans capture à la demande : premier son en moins d'une seconde, contre environ 5 s avec `regarder_fenetre`.
+- Oz répond sur ce qu'il voit sans capture à la demande : premier son en moins d'une seconde, contre environ 5 s avec `look_at_window`.
 - La capture tourne hors du fil asynchrone (`spawn_blocking`) : elle prend jusqu'à 1 s en mode développement.
 - Le broker est consulté **à chaque image** : un accès retiré ou un sanctuaire arrête la vue sur-le-champ.
 - Arrêt automatique : fenêtre fermée, 5 captures ratées d'affilée, ou 20 minutes sans conversation. Une fenêtre réduite n'est pas capturée, la vue continue.
@@ -90,6 +90,6 @@ Le prompt vocal indique la fenêtre partagée quand la session s'ouvre pendant u
 
 - On ne peut pas interrompre Oz à la voix : le micro est muet pendant qu'il parle.
 - L'heure et la mémoire du prompt vocal sont figées à l'ouverture de la session.
-- `regarder_fenetre` (capture ponctuelle) passe encore par le modèle texte, environ 5 s ; la vue en direct évite ce délai.
+- `look_at_window` (capture ponctuelle) passe encore par le modèle texte, environ 5 s ; la vue en direct évite ce délai.
 - La vue en direct ne réagit que quand Julien parle : Oz ne signale pas de lui-même ce qu'il voit.
 - La transcription locale (whisper) est compilée mais n'est pas branchée dans l'interface.

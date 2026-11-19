@@ -50,7 +50,7 @@ pub(crate) fn current() -> Option<String> {
     WATCHING.lock().unwrap().clone()
 }
 
-/// Outil `regarder_avec_moi`.
+/// Outil `watch_with_me`.
 pub(crate) fn tool(app: &AppHandle, action: &str, target: &str) -> String {
     match action {
         "arreter" => {
@@ -75,7 +75,7 @@ fn start(app: &AppHandle, target: &str) -> String {
     tauri::async_runtime::spawn(watch_loop(app.clone(), w, id));
     format!(
         "Tu vois maintenant {label} en direct (une image par seconde pendant que Julien te parle). \
-         Réponds sur ce que tu vois sans utiliser regarder_fenetre pour cette fenêtre."
+         Réponds sur ce que tu vois sans utiliser look_at_window pour cette fenêtre."
     )
 }
 

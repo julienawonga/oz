@@ -61,23 +61,23 @@ It understands what you say **with a real language model, no keywords**: "what's
 
 | Tool | What it does | Required permission |
 |---|---|---|
-| `lister_fenetres` | Lists open apps and windows | none (sanctuaries stay invisible) |
-| `regarder_fenetre` | Captures and describes a window | *Look* |
-| `regarder_avec_moi` | Starts or stops the live view of a window | *Look*, checked on every frame |
-| `fermer_fenetre` | Closes a window | *Act* |
-| `mettre_au_premier_plan` | Brings a window to the front | *Act* |
-| `se_deplacer` · `changer_pose` | Moves the egg, sits it down or stands it up | — |
-| `faire_une_figure` | Zigzag, circle, figure eight, wave, spiral, spin, flip, turn around, jump, dance; optionally on the way somewhere | — |
-| `lieux` | Names the current spot ("home") and goes back to it | — |
-| `zone_interdite` | Forbids or allows the spot where Oz stands | — |
-| `finir_conversation` · `pas_maintenant` | Ends the conversation (mic off, live view stopped); mutes Oz's own initiatives for a while | — |
+| `list_windows` | Lists open apps and windows | none (sanctuaries stay invisible) |
+| `look_at_window` | Captures and describes a window | *Look* |
+| `watch_with_me` | Starts or stops the live view of a window | *Look*, checked on every frame |
+| `close_window` | Closes a window | *Act* |
+| `focus_window` | Brings a window to the front | *Act* |
+| `move` · `set_pose` | Moves the egg, sits it down or stands it up | — |
+| `do_trick` | Zigzag, circle, figure eight, wave, spiral, spin, flip, turn around, jump, dance; optionally on the way somewhere | — |
+| `places` | Names the current spot ("home") and goes back to it | — |
+| `no_go_zone` | Forbids or allows the spot where Oz stands | — |
+| `end_conversation` · `not_now` | Ends the conversation (mic off, live view stopped); mutes Oz's own initiatives for a while | — |
 | `volume` | Volume up, down, set, level, mute after its reply, unmute | — |
-| `changer_plan` · `mode_deplacement` | In front of or behind windows; free, fixed, edge or focus mode | — |
-| `personnaliser_oeuf` | Egg color and texture | — |
-| `lire_skill` | Loads the instructions of a skill | — |
-| `lire_fichier` · `ecrire_fichier` · `modifier_fichier` | Files in Oz's workshop; reading elsewhere asks first | outside the workshop: approval |
-| `executer` | PowerShell command | approval, except a short list of read-only cmdlets |
-| `creer_outil` · `utiliser_outil` | Writes a PowerShell tool with a test; runs an adopted tool | approval for the test and after any change |
+| `set_layer` · `set_movement_mode` | In front of or behind windows; free, fixed, edge or focus mode | — |
+| `customize_egg` | Egg color and texture | — |
+| `read_skill` | Loads the instructions of a skill | — |
+| `read_file` · `write_file` · `edit_file` | Files in Oz's workshop; reading elsewhere asks first | outside the workshop: approval |
+| `run_command` | PowerShell command | approval, except a short list of read-only cmdlets |
+| `create_tool` · `use_tool` | Writes a PowerShell tool with a test; runs an adopted tool | approval for the test and after any change |
 
 Tool names are in French. Oz's language (French by default) is chosen in the *Settings* tab.
 

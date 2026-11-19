@@ -158,7 +158,7 @@ const JUDGE_PROMPT: &str = "Tu es le jugement d'Oz, un petit œuf compagnon de b
 fn judge_tools() -> serde_json::Value {
     json!([{ "functionDeclarations": [
         {
-            "name": "prendre_la_parole",
+            "name": "speak_up",
             "description": "Oz engage la conversation.",
             "parameters": {"type": "object", "properties": {
                 "maniere": {"type": "string", "enum": ["appeler", "lever_la_main"]},
@@ -167,7 +167,7 @@ fn judge_tools() -> serde_json::Value {
             }, "required": ["maniere", "sujet", "premiere_phrase"]}
         },
         {
-            "name": "rester_silencieux",
+            "name": "stay_silent",
             "description": "Oz ne dit rien pour l'instant.",
             "parameters": {"type": "object", "properties": {
                 "raison": {"type": "string"}
@@ -265,7 +265,7 @@ async fn consider(app: &AppHandle, signal: Signal) -> bool {
         }
     };
     let args = &call["args"];
-    if call["name"].as_str() != Some("prendre_la_parole") {
+    if call["name"].as_str() != Some("speak_up") {
         log_event(
             app,
             "initiative",

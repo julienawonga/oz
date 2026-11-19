@@ -4,7 +4,7 @@
 //! Un skill = `skills/<id>/SKILL.md` dans le dossier de config :
 //! un en-tête (nom, description, actif) puis les instructions. Oz ne voit
 //! que la liste des noms et descriptions ; il charge les instructions avec
-//! l'outil `lire_skill` quand la situation s'y prête (aucun mot-clé).
+//! l'outil `read_skill` quand la situation s'y prête (aucun mot-clé).
 //! Du texte seulement : rien n'est exécuté.
 
 use serde::{Deserialize, Serialize};
@@ -136,7 +136,7 @@ pub(crate) fn index_block(app: &AppHandle) -> String {
     }
     let mut s = String::from(
         " Tes skills (savoir-faire que Julien t'a appris). Quand la situation correspond à la description d'un skill, \
-         charge-le avec l'outil lire_skill AVANT d'agir ou de répondre, puis suis ses instructions sans les réciter :",
+         charge-le avec l'outil read_skill AVANT d'agir ou de répondre, puis suis ses instructions sans les réciter :",
     );
     for k in skills {
         s.push_str(&format!(" [{}] {}.", k.name, k.description.trim_end_matches('.')));
@@ -144,7 +144,7 @@ pub(crate) fn index_block(app: &AppHandle) -> String {
     s
 }
 
-/// Outil `lire_skill`.
+/// Outil `read_skill`.
 pub(crate) fn tool(app: &AppHandle, name: &str) -> String {
     let wanted = slug(name);
     let skills = load(app);

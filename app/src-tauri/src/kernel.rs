@@ -101,7 +101,7 @@ pub(crate) async fn exec_decision(app: AppHandle, id: u64, allow: bool) -> Resul
     } else {
         let result = match pending {
             Pending::Command(cmd) => run_powershell(&app, &cmd, None).await,
-            Pending::Read(path) => read_file(&path),
+            Pending::Read(path) => read_text(&path),
             Pending::ToolTest(name) => test_tool(&app, &name).await,
             Pending::Look(tool, args) => {
                 crate::watch::clear_look_pause();
@@ -123,7 +123,7 @@ pub(crate) async fn exec_decision(app: AppHandle, id: u64, allow: bool) -> Resul
 /// Regard pendant la pause « arrête de regarder » : Julien doit toucher
 /// le badge. Le modèle seul ne peut pas lever la pause.
 pub(crate) fn ask_look(app: &AppHandle, tool: &str, args: &Value) -> String {
-    let target = args["cible"].as_str().filter(|c| !c.is_empty()).unwrap_or("la fenêtre que tu utilises");
+    let target = args["target"].as_str().filter(|c| !c.is_empty()).unwrap_or("la fenêtre que tu utilises");
     let _ = ask(app, Pending::Look(tool.to_string(), args.clone()), "Oz veut regarder ton écran", &format!(
         "Tu lui avais demandé d'arrêter de regarder.\nIl voudrait regarder : {target}"
     ));
@@ -134,7 +134,7 @@ pub(crate) fn ask_look(app: &AppHandle, tool: &str, args: &Value) -> String {
 
 // ── Les quatre outils ──
 
-fn read_file(path: &Path) -> String {
+fn read_text(path: &Path) -> String {
     match fs::read(path) {
         Ok(bytes) => {
             let text = String::from_utf8_lossy(&bytes);
@@ -144,21 +144,21 @@ fn read_file(path: &Path) -> String {
     }
 }
 
-pub(crate) fn lire_fichier(app: &AppHandle, chemin: &str) -> String {
+pub(crate) fn read_file(app: &AppHandle, chemin: &str) -> String {
     let p = Path::new(chemin.trim());
     if p.is_absolute() {
         if p.starts_with(atelier(app)) {
-            return read_file(p);
+            return read_text(p);
         }
         return ask(app, Pending::Read(p.to_path_buf()), "Oz veut lire un fichier", &p.display().to_string());
     }
     match inside_atelier(app, chemin) {
-        Ok(path) => read_file(&path),
+        Ok(path) => read_text(&path),
         Err(e) => e,
     }
 }
 
-pub(crate) fn ecrire_fichier(app: &AppHandle, chemin: &str, contenu: &str) -> String {
+pub(crate) fn write_file(app: &AppHandle, chemin: &str, contenu: &str) -> String {
     let path = match inside_atelier(app, chemin) {
         Ok(p) => p,
         Err(e) => return e,
@@ -175,7 +175,7 @@ pub(crate) fn ecrire_fichier(app: &AppHandle, chemin: &str, contenu: &str) -> St
     }
 }
 
-pub(crate) fn modifier_fichier(app: &AppHandle, chemin: &str, ancien: &str, nouveau: &str) -> String {
+pub(crate) fn edit_file(app: &AppHandle, chemin: &str, ancien: &str, nouveau: &str) -> String {
     let path = match inside_atelier(app, chemin) {
         Ok(p) => p,
         Err(e) => return e,
@@ -213,7 +213,7 @@ fn is_read_only(cmd: &str) -> bool {
     })
 }
 
-pub(crate) async fn executer(app: &AppHandle, commande: &str) -> String {
+pub(crate) async fn run_command(app: &AppHandle, commande: &str) -> String {
     if is_read_only(commande) {
         return run_powershell(app, commande, None).await;
     }
@@ -350,7 +350,7 @@ async fn test_tool(app: &AppHandle, name: &str) -> String {
         save_tool(app, &tool);
         log_event(app, "kernel", &format!("outil adopté : {}", tool.name));
         format!(
-            "Test réussi : l'outil « {} » est adopté. Utilise-le avec utiliser_outil (nom « {} »).\n{out}",
+            "Test réussi : l'outil « {} » est adopté. Utilise-le avec use_tool (nom « {} »).\n{out}",
             tool.name, tool.name
         )
     } else {
@@ -358,15 +358,15 @@ async fn test_tool(app: &AppHandle, name: &str) -> String {
         // la sortie aussi : sans elle, impossible de savoir pourquoi
         log_event(app, "kernel", &format!("test échoué : {} -> {}", tool.name, truncate(&out, 400).replace('\n', " | ")));
         format!(
-            "Test échoué (attendu dans la sortie : « {} »). Corrige le code ou le test et rappelle creer_outil avec le même nom.\n{out}",
+            "Test échoué (attendu dans la sortie : « {} »). Corrige le code ou le test et rappelle create_tool avec le même nom.\n{out}",
             tool.test_expect
         )
     }
 }
 
-pub(crate) fn creer_outil(app: &AppHandle, args: &Value) -> String {
+pub(crate) fn create_tool(app: &AppHandle, args: &Value) -> String {
     let s = |k: &str| args[k].as_str().unwrap_or("").trim().to_string();
-    let (name, description, code, expect) = (s("nom"), s("description"), s("code"), s("test_attendu"));
+    let (name, description, code, expect) = (s("name"), s("description"), s("code"), s("test_expect"));
     if tool_slug(&name).is_empty() || description.is_empty() || code.is_empty() || expect.is_empty() {
         return "Il faut un nom, une description, le code PowerShell et le texte attendu du test.".into();
     }
@@ -374,11 +374,11 @@ pub(crate) fn creer_outil(app: &AppHandle, args: &Value) -> String {
     if existing.is_none() && load_tools(app).len() >= MAX_TOOLS {
         return format!("Ta boîte à outils est pleine ({MAX_TOOLS}) : demande à Julien d'en supprimer un dans le panneau.");
     }
-    let test_args: Value = serde_json::from_str(&s("test_arguments")).unwrap_or(json!({}));
+    let test_args: Value = serde_json::from_str(&s("test_args")).unwrap_or(json!({}));
     let tool = CustomTool {
         name: tool_slug(&name),
         description,
-        parameters: s("parametres"),
+        parameters: s("parameters"),
         code: code.clone(),
         test_args,
         test_expect: expect,
@@ -398,7 +398,7 @@ pub(crate) fn creer_outil(app: &AppHandle, args: &Value) -> String {
     )
 }
 
-pub(crate) async fn utiliser_outil(app: &AppHandle, name: &str, args: &Value) -> String {
+pub(crate) async fn use_tool(app: &AppHandle, name: &str, args: &Value) -> String {
     let Some(mut tool) = load_tool(app, name) else {
         let names: Vec<String> = load_tools(app).into_iter().filter(|t| t.status == "actif").map(|t| t.name).collect();
         return format!("Aucun outil « {name} ». Tes outils : {}.", if names.is_empty() { "aucun".into() } else { names.join(", ") });
@@ -418,13 +418,13 @@ pub(crate) async fn utiliser_outil(app: &AppHandle, name: &str, args: &Value) ->
 /// Bloc ajouté aux consignes : la boîte à outils et la manière de s'en servir.
 pub(crate) fn prompt_block(app: &AppHandle) -> String {
     let mut s = String::from(
-        " Tu as aussi un atelier (un dossier à toi) et des outils de base : lire_fichier, ecrire_fichier, modifier_fichier, \
-         executer (PowerShell). Quand aucun de tes outils ne couvre une demande, ne dis pas que tu ne peux pas : \
-         fabrique-toi un outil avec creer_outil (code PowerShell + un test), puis utilise-le. Un outil est GÉNÉRIQUE : \
+        " Tu as aussi un atelier (un dossier à toi) et des outils de base : read_file, write_file, edit_file, \
+         run_command (PowerShell). Quand aucun de tes outils ne couvre une demande, ne dis pas que tu ne peux pas : \
+         fabrique-toi un outil avec create_tool (code PowerShell + un test), puis utilise-le. Un outil est GÉNÉRIQUE : \
          ce qui change (l'appli, la fenêtre, la ville...) est un paramètre ; jamais un outil par appli (reduire_fenetre \
          avec le paramètre appli, pas reduire_chrome et reduire_terminal). Avant d'en créer un, regarde tes outils : \
          si l'un d'eux fait presque la même chose ou est cassé, refais-le sous le même nom plutôt que d'en ajouter un. \
-         Ne lance pas une commande executer au hasard avant : chaque essai demande l'accord de Julien. Pour agir sur une fenêtre \
+         Ne lance pas une commande run_command au hasard avant : chaque essai demande l'accord de Julien. Pour agir sur une fenêtre \
          (réduire, agrandir, déplacer...), appelle l'API Windows depuis PowerShell avec Add-Type (user32.dll : ShowWindow...) ; \
          trouve la fenêtre par un MORCEAU de son titre ou par le nom de son appli (Get-Process | Where-Object \
          { $_.MainWindowTitle -like \"*mot*\" -or $_.ProcessName -like \"*mot*\" }, puis MainWindowHandle), jamais par son \
@@ -437,7 +437,7 @@ pub(crate) fn prompt_block(app: &AppHandle) -> String {
     );
     let tools: Vec<CustomTool> = load_tools(app).into_iter().filter(|t| t.status == "actif").collect();
     if !tools.is_empty() {
-        s.push_str(" Tes outils fabriqués (à lancer avec utiliser_outil) :");
+        s.push_str(" Tes outils fabriqués (à lancer avec use_tool) :");
         for t in tools {
             s.push_str(&format!(" [{}] {} Paramètres : {}.", t.name, t.description.trim_end_matches('.'), if t.parameters.is_empty() { "aucun" } else { &t.parameters }));
         }
@@ -449,44 +449,44 @@ pub(crate) fn prompt_block(app: &AppHandle) -> String {
 pub(crate) fn declarations() -> Vec<Value> {
     vec![
         json!({
-            "name": "lire_fichier",
+            "name": "read_file",
             "description": "Lit un fichier texte. Chemin relatif = dans ton atelier ; chemin absolu ailleurs sur le PC = accord de Julien demandé.",
-            "parameters": {"type": "object", "properties": {"chemin": {"type": "string"}}, "required": ["chemin"]}
+            "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}
         }),
         json!({
-            "name": "ecrire_fichier",
+            "name": "write_file",
             "description": "Écrit (ou remplace) un fichier texte dans ton atelier. Chemin relatif seulement.",
-            "parameters": {"type": "object", "properties": {"chemin": {"type": "string"}, "contenu": {"type": "string"}}, "required": ["chemin", "contenu"]}
+            "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}
         }),
         json!({
-            "name": "modifier_fichier",
+            "name": "edit_file",
             "description": "Remplace un extrait exact (unique) d'un fichier de ton atelier par un nouveau texte.",
-            "parameters": {"type": "object", "properties": {"chemin": {"type": "string"}, "ancien": {"type": "string"}, "nouveau": {"type": "string"}}, "required": ["chemin", "ancien", "nouveau"]}
+            "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "old": {"type": "string"}, "new": {"type": "string"}}, "required": ["path", "old", "new"]}
         }),
         json!({
-            "name": "executer",
+            "name": "run_command",
             "description": "Lance une commande PowerShell sur le PC de Julien (dossier courant : ton atelier). Les lectures simples (Get-Process, Get-Date…) passent seules ; tout le reste est montré à Julien et attend son accord, et le résultat te revient ensuite.",
-            "parameters": {"type": "object", "properties": {"commande": {"type": "string"}}, "required": ["commande"]}
+            "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}
         }),
         json!({
-            "name": "creer_outil",
+            "name": "create_tool",
             "description": "Fabrique un outil durable en PowerShell quand une capacité te manque et reviendra. Le test tourne après l'accord de Julien ; s'il passe, l'outil est adopté. Même nom = nouvelle version.",
             "parameters": {"type": "object", "properties": {
-                "nom": {"type": "string", "description": "court, en minuscules, ex. meteo_ville"},
+                "name": {"type": "string", "description": "court, en minuscules, ex. meteo_ville"},
                 "description": {"type": "string", "description": "ce que fait l'outil et quand t'en servir"},
-                "parametres": {"type": "string", "description": "les paramètres en clair, ex. « ville (texte) »"},
+                "parameters": {"type": "string", "description": "les paramètres en clair, ex. « ville (texte) »"},
                 "code": {"type": "string", "description": "script PowerShell ; lit ses arguments dans $OzArgs (ex. $OzArgs.ville) et écrit son résultat sur la sortie"},
-                "test_arguments": {"type": "string", "description": "arguments du test en JSON, ex. {\"ville\":\"Paris\"}"},
-                "test_attendu": {"type": "string", "description": "texte qui doit apparaître dans la sortie du test"}
-            }, "required": ["nom", "description", "code", "test_attendu"]}
+                "test_args": {"type": "string", "description": "arguments du test en JSON, ex. {\"ville\":\"Paris\"}"},
+                "test_expect": {"type": "string", "description": "texte qui doit apparaître dans la sortie du test"}
+            }, "required": ["name", "description", "code", "test_expect"]}
         }),
         json!({
-            "name": "utiliser_outil",
+            "name": "use_tool",
             "description": "Lance un des outils que tu t'es fabriqués (liste dans tes consignes).",
             "parameters": {"type": "object", "properties": {
-                "nom": {"type": "string"},
+                "name": {"type": "string"},
                 "arguments": {"type": "string", "description": "arguments en JSON, ex. {\"ville\":\"Paris\"}"}
-            }, "required": ["nom"]}
+            }, "required": ["name"]}
         }),
     ]
 }

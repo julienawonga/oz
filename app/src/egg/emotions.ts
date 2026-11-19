@@ -1,7 +1,7 @@
 import { robot } from "./ui";
 
 // ── Émotions : le visage change et des bulles s'envolent ─────────────
-// Gemini décide de l'émotion (outil exprimer_emotion, aucun mot-clé) ;
+// Gemini décide de l'émotion (outil express_emotion, aucun mot-clé) ;
 // l'œuf la montre quelques secondes puis reprend son air habituel.
 
 const EMOJI: Record<string, string[]> = {
