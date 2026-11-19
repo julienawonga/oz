@@ -133,26 +133,14 @@ On first launch, open the admin panel, **Models** tab, pick the brain and enter 
 ## 🏗️ Architecture
 
 ```mermaid
-flowchart TB
-    you(["🗣️ You"]) -- "talk, click" --> egg["🥚 Egg (TypeScript)<br/>mic, voice, bubble, emotions, moves"]
-    egg -- "mic audio" --> live["Gemini Live<br/>one session: hears, thinks, speaks"]
-    live -- "voice, emotions, moves" --> egg
-    ctx["Prompt<br/>persona, your name, date, memory, skills"] --> live
-    init["Initiative<br/>signals + Gemini judge"] --> live
-    live -- "tool calls" --> reg
-
-    subgraph rust ["Rust backend: the model proposes, the code decides"]
-        reg["Toolsets registry<br/>switched off = refused"]
-        reg --> builtin["Built-in toolsets<br/>windows, vision, body, expression, sound"]
-        reg --> kernel["Kernel and workshop<br/>files, PowerShell, tools Oz builds<br/>(your approval on the egg)"]
-        reg --> modules["Installed modules<br/>PowerShell tools + skills<br/>(code reviewed at install)"]
-        builtin --> broker{{"Broker<br/>permissions, sanctuaries"}}
-        broker --> win32["Win32<br/>windows, capture"]
-    end
-
-    live -- "exchanges" --> memory[("Memory<br/>facts, episodes")]
-    memory --> ctx
+flowchart LR
+    you(["🗣️ You"]) <-->|voice| egg["🥚 Egg"]
+    egg <-->|audio| live["Gemini Live"]
+    live -->|tool calls| core["Rust core<br/>toolsets · modules · broker"]
+    core -->|only what you allowed| pc["💻 Your PC"]
 ```
+
+Full map of the modules: [docs/architecture.md](docs/architecture.md).
 
 ```text
 app/
