@@ -15,7 +15,7 @@ use crate::zones::{Zone, ZonesState};
 
 /// Déclarations envoyées à Gemini (champ `tools`).
 pub(crate) fn declarations() -> Value {
-    json!([{ "functionDeclarations": [
+    let mut decl = json!([{ "functionDeclarations": [
         {
             "name": "lister_fenetres",
             "description": "Liste les applications et fenêtres ouvertes sur l'écran de Julien."
@@ -120,7 +120,12 @@ pub(crate) fn declarations() -> Value {
                 "minutes": {"type": "integer", "description": "Durée du silence demandée, 60 par défaut."}
             }}
         }
-    ]}])
+    ]}]);
+    // noyau : fichiers, PowerShell, outils fabriqués par Oz
+    if let Some(list) = decl[0]["functionDeclarations"].as_array_mut() {
+        list.extend(crate::kernel::declarations());
+    }
+    decl
 }
 
 /// Exécute un appel d'outil et renvoie le résultat (texte lu par le modèle).
@@ -185,6 +190,20 @@ async fn dispatch(app: &AppHandle, name: &str, args: &Value) -> String {
         "regarder_avec_moi" => crate::watch::tool(app, &arg("action"), &arg("cible").to_lowercase()),
         "volume" => crate::volume::tool(app, &arg("action"), args["valeur"].as_i64()),
         "lire_skill" => crate::skills::tool(app, &arg("nom")),
+        "lire_fichier" => crate::kernel::lire_fichier(app, &arg("chemin")),
+        "ecrire_fichier" => crate::kernel::ecrire_fichier(app, &arg("chemin"), args["contenu"].as_str().unwrap_or("")),
+        "modifier_fichier" => crate::kernel::modifier_fichier(
+            app,
+            &arg("chemin"),
+            args["ancien"].as_str().unwrap_or(""),
+            args["nouveau"].as_str().unwrap_or(""),
+        ),
+        "executer" => crate::kernel::executer(app, &arg("commande")).await,
+        "creer_outil" => crate::kernel::creer_outil(app, args),
+        "utiliser_outil" => {
+            let a: Value = serde_json::from_str(&arg("arguments")).unwrap_or(json!({}));
+            crate::kernel::utiliser_outil(app, &arg("nom"), &a).await
+        }
         "changer_pose" => {
             let _ = app.emit("oz://do", json!({"action": "pose", "pose": arg("pose")}));
             "Pose changée.".into()

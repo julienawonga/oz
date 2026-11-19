@@ -188,6 +188,7 @@ pub(crate) fn spawn_consolidation(app: AppHandle, exchanges: Vec<ChatMessage>) {
             }
         }
         log_event(&app, "memory", &format!("consolidation : {} fait(s) retenu(s)", kept));
+        crate::skills::maybe_reflect(&app);
     });
 }
 

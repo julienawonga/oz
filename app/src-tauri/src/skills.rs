@@ -30,6 +30,12 @@ pub struct Skill {
     pub enabled: bool,
     #[serde(default)]
     pub ts: u64,
+    /// Proposé par Oz après relecture de ses ratés, en attente de Julien.
+    #[serde(default)]
+    pub proposed: bool,
+    /// Pourquoi Oz le propose (les ratés constatés).
+    #[serde(default)]
+    pub reason: String,
 }
 
 fn skills_dir(app: &AppHandle) -> PathBuf {
@@ -69,6 +75,8 @@ fn parse(id: &str, text: &str, ts: u64) -> Option<Skill> {
         instructions: body.trim_start_matches(['\r', '\n']).trim_end().to_string(),
         enabled: true,
         ts,
+        proposed: false,
+        reason: String::new(),
     };
     for line in head.lines() {
         let Some((k, v)) = line.split_once(':') else { continue };
@@ -77,6 +85,8 @@ fn parse(id: &str, text: &str, ts: u64) -> Option<Skill> {
             "name" => skill.name = v,
             "description" => skill.description = v,
             "enabled" => skill.enabled = v != "false",
+            "proposed" => skill.proposed = v == "true",
+            "reason" => skill.reason = v,
             _ => {}
         }
     }
@@ -85,13 +95,16 @@ fn parse(id: &str, text: &str, ts: u64) -> Option<Skill> {
 
 fn render(s: &Skill) -> String {
     let one_line = |t: &str| t.replace(['\r', '\n'], " ").trim().to_string();
-    format!(
-        "---\nname: {}\ndescription: {}\nenabled: {}\n---\n\n{}\n",
+    let mut head = format!(
+        "---\nname: {}\ndescription: {}\nenabled: {}\n",
         one_line(&s.name),
         one_line(&s.description),
-        s.enabled,
-        s.instructions.trim()
-    )
+        s.enabled
+    );
+    if s.proposed {
+        head.push_str(&format!("proposed: true\nreason: {}\n", one_line(&s.reason)));
+    }
+    format!("{head}---\n\n{}\n", s.instructions.trim())
 }
 
 pub(crate) fn load(app: &AppHandle) -> Vec<Skill> {
@@ -117,7 +130,7 @@ pub(crate) fn load(app: &AppHandle) -> Vec<Skill> {
 
 /// Bloc ajouté aux consignes : la liste des skills actifs.
 pub(crate) fn index_block(app: &AppHandle) -> String {
-    let skills: Vec<Skill> = load(app).into_iter().filter(|s| s.enabled).take(MAX_IN_PROMPT).collect();
+    let skills: Vec<Skill> = load(app).into_iter().filter(|s| s.enabled && !s.proposed).take(MAX_IN_PROMPT).collect();
     if skills.is_empty() {
         return String::new();
     }
@@ -137,16 +150,16 @@ pub(crate) fn tool(app: &AppHandle, name: &str) -> String {
     let skills = load(app);
     let found = skills
         .iter()
-        .filter(|s| s.enabled)
+        .filter(|s| s.enabled && !s.proposed)
         .find(|s| s.id == wanted || slug(&s.name) == wanted)
-        .or_else(|| skills.iter().filter(|s| s.enabled).find(|s| slug(&s.name).contains(&wanted)));
+        .or_else(|| skills.iter().filter(|s| s.enabled && !s.proposed).find(|s| slug(&s.name).contains(&wanted)));
     match found {
         Some(s) => {
             log_event(app, "skill", &format!("lit « {} »", s.name));
             format!("Skill « {} » :\n{}", s.name, s.instructions)
         }
         None => {
-            let names: Vec<String> = skills.iter().filter(|s| s.enabled).map(|s| s.name.clone()).collect();
+            let names: Vec<String> = skills.iter().filter(|s| s.enabled && !s.proposed).map(|s| s.name.clone()).collect();
             format!("Aucun skill actif nommé « {name} ». Skills disponibles : {}.", names.join(", "))
         }
     }
@@ -220,11 +233,125 @@ mod tests {
             instructions: "Étape 1\n\nÉtape 2: ok".into(),
             enabled: false,
             ts: 0,
+            proposed: true,
+            reason: "deux fois\nsans outil".into(),
         };
         let p = parse("x", &render(&s), 0).unwrap();
         assert_eq!(p.name, "Mon skill");
         assert_eq!(p.description, "Quand Julien prépare un mariage");
         assert_eq!(p.instructions, "Étape 1\n\nÉtape 2: ok");
         assert!(!p.enabled);
+        assert!(p.proposed);
+        assert_eq!(p.reason, "deux fois sans outil");
     }
+}
+
+// ── Oz propose ses propres skills ──
+// La seconde boucle de Harness², en version légère : de temps en temps,
+// Oz relit son journal (échanges, outils, échecs). Si un même raté revient
+// au moins deux fois et qu'un savoir-faire écrit l'éviterait, il rédige
+// UN skill, désactivé, que Julien accepte ou refuse dans le panneau.
+// Un raté isolé est du bruit : on ne retient rien.
+
+use std::sync::atomic::{AtomicU32, Ordering};
+
+/// Une relecture toutes les N consolidations de mémoire.
+const REFLECT_EVERY: u32 = 3;
+static SINCE_REFLECTION: AtomicU32 = AtomicU32::new(0);
+const MAX_PROPOSED: usize = 3;
+
+const REFLECTION_PROMPT: &str = "Tu relis le journal d'Oz, un compagnon de bureau vocal (Julien lui parle). \
+Cherche un RATÉ QUI REVIENT au moins deux fois : Oz qui dit ne pas pouvoir faire quelque chose, un outil qui échoue, \
+Julien qui doit reformuler ou corriger Oz, une même demande mal traitée. \
+Si un savoir-faire écrit (des instructions en texte, sans code) éviterait ce raté à l'avenir, rédige UN skill. \
+Sinon (raté isolé, simple bruit de transcription, ou problème qu'un texte ne règle pas), n'en propose aucun. \
+N'en propose pas un qui recouvre un skill existant. Les instructions s'adressent à Oz, au tutoiement, courtes et concrètes. \
+Réponds UNIQUEMENT en JSON : {\"skill\": null} ou \
+{\"skill\": {\"name\": \"...\", \"description\": \"quand s'en servir, en une phrase\", \"instructions\": \"...\", \"reason\": \"les ratés constatés, en une phrase\"}}";
+
+/// Appelé après chaque consolidation de mémoire.
+pub(crate) fn maybe_reflect(app: &AppHandle) {
+    if SINCE_REFLECTION.fetch_add(1, Ordering::SeqCst) + 1 < REFLECT_EVERY {
+        return;
+    }
+    SINCE_REFLECTION.store(0, Ordering::SeqCst);
+    let skills = load(app);
+    if skills.iter().filter(|s| s.proposed).count() >= MAX_PROPOSED {
+        return; // Julien n'a pas encore trié les propositions
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        match reflect(&app, &skills).await {
+            Ok(Some(name)) => log_event(&app, "skill", &format!("proposé par Oz : « {name} »")),
+            Ok(None) => log_event(&app, "skill", "relecture : rien à proposer"),
+            Err(e) => log_event(&app, "skill", &format!("relecture impossible : {e}")),
+        }
+    });
+}
+
+/// Les dernières lignes utiles du journal (échanges, outils, noyau).
+fn recent_journal(app: &AppHandle) -> String {
+    let text = fs::read_to_string(crate::journal::journal_path(app)).unwrap_or_default();
+    let lines: Vec<String> = text
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter(|v| matches!(v["kind"].as_str(), Some("conversation" | "tool" | "kernel" | "vision" | "watch")))
+        .map(|v| format!("{} : {}", v["kind"].as_str().unwrap_or(""), v["detail"].as_str().unwrap_or("")))
+        .collect();
+    lines[lines.len().saturating_sub(150)..].join("\n")
+}
+
+async fn reflect(app: &AppHandle, skills: &[Skill]) -> Result<Option<String>, String> {
+    let cfg = app.state::<crate::brain::BrainState>().config.lock().unwrap().clone();
+    if cfg.api_key.is_empty() {
+        return Err("pas de clé Gemini".into());
+    }
+    let model = if cfg.provider == "gemini" { cfg.model.clone() } else { "gemini-3.8-flash".into() };
+    let existing: Vec<String> = skills.iter().map(|s| format!("[{}] {}", s.name, s.description)).collect();
+    let ctx = format!(
+        "Skills existants :\n{}\n\nJournal récent :\n{}",
+        if existing.is_empty() { "aucun".into() } else { existing.join("\n") },
+        recent_journal(app)
+    );
+    let url = format!("https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent");
+    let body = serde_json::json!({
+        "systemInstruction": {"parts": [{"text": REFLECTION_PROMPT}]},
+        "contents": [{"role": "user", "parts": [{"text": ctx}]}],
+        "generationConfig": {"responseMimeType": "application/json", "temperature": 0.2}
+    });
+    let resp = crate::brain::http_client()
+        .post(&url)
+        .header("x-goog-api-key", &cfg.api_key)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(crate::brain::http_error("Gemini", resp).await);
+    }
+    let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    let text = v["candidates"][0]["content"]["parts"]
+        .as_array()
+        .and_then(|parts| parts.iter().filter(|p| p["thought"].as_bool() != Some(true)).find_map(|p| p["text"].as_str()))
+        .ok_or("réponse vide")?;
+    let out: serde_json::Value = serde_json::from_str(text).map_err(|_| "réponse illisible".to_string())?;
+    let k = &out["skill"];
+    if k.is_null() {
+        return Ok(None);
+    }
+    let get = |f: &str| k[f].as_str().unwrap_or("").trim().to_string();
+    let skill = Skill {
+        id: String::new(),
+        name: get("name"),
+        description: get("description"),
+        instructions: get("instructions"),
+        enabled: false,
+        ts: 0,
+        proposed: true,
+        reason: get("reason"),
+    };
+    let name = skill.name.clone();
+    save_skill(app.clone(), skill)?;
+    let _ = tauri::Emitter::emit(app, "oz://skills-updated", ());
+    Ok(Some(name))
 }

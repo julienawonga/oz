@@ -103,6 +103,7 @@ pub(crate) fn live_system_prompt(app: &AppHandle) -> String {
     }
     s.push_str(&build_memory_block(app, ""));
     s.push_str(&crate::skills::index_block(app));
+    s.push_str(&crate::kernel::prompt_block(app));
     s
 }
 
@@ -329,6 +330,7 @@ pub(crate) async fn chat(
     system.push_str(&now_line());
     system.push_str(&build_memory_block(&app, &user_msg));
     system.push_str(&crate::skills::index_block(&app));
+    system.push_str(&crate::kernel::prompt_block(&app));
     let mut messages = vec![ChatMessage {
         role: "system".into(),
         content: system,

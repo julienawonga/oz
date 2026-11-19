@@ -5,13 +5,22 @@ import { state } from "./state";
 import { accessBadge, accessCard, placeBubble } from "./ui";
 
 // ── Demandes d'accès : un badge sur l'œuf, une carte à la demande ────
-interface AccessReq { app: string; process: string; title: string; need: "look" | "act"; intent: string }
-const accessQueue: AccessReq[] = [];
+interface AccessReq { app: string; process: string; title: string; need: "look" | "act"; intent: string; exec?: undefined }
+/** Commande, lecture de fichier ou outil fabriqué : Oz montre ce qu'il veut lancer. */
+interface ExecReq { exec: { id: number; title: string; detail: string }; app: string; process: string; need: "exec" }
+type Req = AccessReq | ExecReq;
+const accessQueue: Req[] = [];
 
 void listen<Omit<AccessReq, "intent">>("oz://access-request", (e) => {
   const dup = accessQueue.some((r) => r.process === e.payload.process && r.need === e.payload.need);
   if (!dup) accessQueue.push({ ...e.payload, intent: state.lastUserIntent });
   refreshAccessBadge();
+});
+
+void listen<{ id: number; title: string; detail: string }>("oz://exec-request", (e) => {
+  accessQueue.push({ exec: e.payload, app: "Oz", process: "", need: "exec" });
+  refreshAccessBadge();
+  openAccessCard(); // on montre tout de suite ce qu'il veut lancer
 });
 
 function refreshAccessBadge(): void {
@@ -28,6 +37,17 @@ function esc(s: string): string {
 function openAccessCard(): void {
   const req = accessQueue[0];
   if (!req) return;
+  const sanctuary = document.getElementById("access-sanctuary")!;
+  sanctuary.classList.toggle("hidden", !!req.exec);
+  if (req.exec) {
+    document.getElementById("access-text")!.innerHTML =
+      `<b>${esc(req.exec.title)}</b><pre class="exec-detail">${esc(req.exec.detail)}</pre>` +
+      (accessQueue.length > 1 ? `<em>${accessQueue.length - 1} autre(s) en attente</em>` : "");
+    document.getElementById("access-allow")!.textContent = "Autoriser";
+    accessCard.classList.remove("hidden");
+    void placeBubble(true);
+    return;
+  }
   const verb = req.need === "act" ? "agir sur" : "regarder";
   document.getElementById("access-text")!.innerHTML =
     `<b>${esc(req.app)}</b> · ${esc(req.title).slice(0, 60)}<br><span>Oz demande à ${verb} cette application.</span>` +
@@ -45,6 +65,12 @@ export function closeAccessCard(): void {
 async function resolveAccess(level: "look" | "act" | "sanctuary" | "none"): Promise<void> {
   const req = accessQueue.shift();
   if (!req) return;
+  if (req.exec) {
+    await invoke("exec_decision", { id: req.exec.id, allow: level !== "none" }).catch(() => {});
+    refreshAccessBadge();
+    if (accessQueue.length) openAccessCard();
+    return;
+  }
   // la règle porte sur l'application entière (processus::*)
   if (level !== "none") {
     await invoke("set_permission", { key: `${req.process}::*`, level }).catch(() => {});
@@ -74,7 +100,8 @@ accessBadge.addEventListener("click", (e) => {
 });
 accessCard.addEventListener("pointerdown", (e) => e.stopPropagation());
 document.getElementById("access-allow")!.addEventListener("click", () => {
-  void resolveAccess(accessQueue[0]?.need ?? "look");
+  const need = accessQueue[0]?.need ?? "look";
+  void resolveAccess(need === "exec" ? "act" : need);
 });
 document.getElementById("access-deny")!.addEventListener("click", () => void resolveAccess("none"));
 document.getElementById("access-sanctuary")!.addEventListener("click", () => void resolveAccess("sanctuary"));

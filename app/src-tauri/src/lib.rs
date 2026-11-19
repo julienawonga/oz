@@ -15,6 +15,7 @@ mod broker;
 mod cursor;
 mod initiative;
 mod journal;
+mod kernel;
 mod memory;
 mod places;
 mod prefs;
@@ -116,6 +117,9 @@ pub fn run() {
             volume::mute_system,
             volume::duck_others,
             skills::get_skills,
+            kernel::exec_decision,
+            kernel::get_custom_tools,
+            kernel::delete_custom_tool,
             skills::save_skill,
             skills::delete_skill,
             voice::voice_feed,

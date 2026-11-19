@@ -363,3 +363,9 @@ time { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums;
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* code des outils fabriqués par Oz */
+.tool-code { flex-basis: 100%; margin: 8px 0 0; max-height: 260px; overflow: auto; padding: 10px 12px;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  font: 12px/1.5 ui-monospace, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
+.hidden { display: none !important; }

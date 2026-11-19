@@ -273,6 +273,11 @@ button:focus-visible {
   z-index: 6;
 }
 #access-text span { color: #475569; }
+#access-text pre.exec-detail {
+  margin: 6px 0 0; max-height: 160px; overflow: auto; padding: 6px 8px;
+  background: #0f172a; color: #e2e8f0; border-radius: 6px;
+  font: 11px/1.4 ui-monospace, Consolas, monospace; white-space: pre-wrap; word-break: break-word;
+}
 #access-text em { display: block; margin-top: 4px; font-size: 11px; color: #64748b; font-style: normal; }
 #access-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 #access-actions button {
