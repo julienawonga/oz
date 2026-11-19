@@ -54,7 +54,7 @@ pub(crate) fn snooze(app: &AppHandle, minutes: u64) -> String {
     let minutes = minutes.clamp(5, 12 * 60);
     SNOOZE_UNTIL.store(now_ts() + minutes * 60, Ordering::Relaxed);
     log_event(app, "initiative", &format!("en sourdine pour {minutes} min"));
-    format!("D'accord, Oz ne prendra pas la parole de lui-même pendant {minutes} minutes ; le micro se coupe après ta réponse.")
+    format!("D'accord, Oz ne prendra pas la parole de lui-même pendant {minutes} minutes ; le micro se coupe. Si tu as déjà répondu, ne dis plus rien ; sinon, un seul mot.")
 }
 
 /// Secondes depuis la dernière action clavier/souris.

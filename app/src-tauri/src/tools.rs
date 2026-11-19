@@ -270,7 +270,7 @@ async fn dispatch(app: &AppHandle, name: &str, args: &Value) -> String {
         "finir_conversation" => {
             let _ = app.emit("oz://do", json!({"action": "end"}));
             stop_watching(app);
-            "Conversation terminée : le micro se coupe après ta réponse.".into()
+            "Conversation terminée, le micro se coupe. Si tu as déjà dit au revoir, ne dis plus rien ; sinon, un seul mot.".into()
         }
         "pas_maintenant" => {
             let _ = app.emit("oz://do", json!({"action": "end"}));
