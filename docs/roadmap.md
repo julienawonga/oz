@@ -25,21 +25,30 @@
 - Son des autres applis coupé pendant la conversation, remis même après un arrêt forcé d'Oz.
 - Outils rangés en toolsets (à la façon d'Hermes Agent), activables dans l'onglet Outils ; noms d'outils en anglais.
 - Modules installables (git ou dossier) : outils PowerShell et skills, code relu avant installation ; module d'exemple `window-sizes`.
+- Prénom de l'utilisateur en réglage, injecté dans tous les textes envoyés au modèle (comme la date et l'heure) ; demandé par Oz s'il manque.
+- Skills (procédures écrites) et outils (actions) séparés dans le panneau et dans les consignes.
+- Session vocale qui repart d'elle-même quand la reprise a expiré ; outil des émotions non bloquant (plus de phrase répétée).
+- Dépôt public, historique nettoyé.
 
 ## Ensuite
 
-- Fusionner la branche `feat/skills-volume-fixes` dans `main`.
-- Oz réagit de lui-même avec une émotion à ce qu'il voit ou entend (aujourd'hui, seulement quand il répond).
-- Oz réagit de lui-même à ce qu'il voit pendant « Regarde avec moi ».
-- Serveurs MCP : brancher les outils de l'écosystème MCP comme des toolsets, chaque appel passant par le broker.
-- Skills au format standard (agentskills.io, compatible Hermes) : importer ceux de la communauté.
-- Hooks : du code de module appelé en début et fin de conversation, avant une réponse.
-- Les outils fabriqués par Oz enregistrés au format module.
-- Outils pour les modèles locaux (Ollama), pour retirer le dernier routeur par mots-clés.
+Dans l'ordre :
+
+1. **Serveurs MCP** : brancher les outils de l'écosystème MCP comme des toolsets, chaque appel passant par le broker.
+2. **Skills au format standard** (agentskills.io, compatible Hermes) : importer et partager des skills.
+3. **Hooks de modules** : du code appelé en début et fin de conversation, avant une réponse.
+4. **Réactions spontanées** : une émotion ou une remarque d'Oz sur ce qu'il voit (« Regarde avec moi ») ou entend, sans attendre une question.
+5. **Outils pour les modèles locaux** (Ollama), pour retirer le dernier routeur par mots-clés.
+
+À ranger en chemin :
+
+- Enregistrer les outils fabriqués par Oz au format module.
 - Vérifier si la reprise de session Live accepte une nouvelle liste d'outils (aujourd'hui, les outils fabriqués passent par `use_tool`).
+- Moins de mises en sourdine par erreur (« je devrais dormir » compris comme « laisse-moi tranquille »).
 
 ## Plus loin
 
 - Reconnaître la voix de l'utilisateur : empreinte vocale locale (ECAPA-TDNN en ONNX), enregistrée une fois, pour écarter les autres voix avant Gemini. D'abord mesurer la vitesse sur le processeur.
 - Mot d'éveil, ou appuyer pour parler.
+- macOS et Linux.
 - Croissance de l'œuf (éclosion, stades) : en attente.
