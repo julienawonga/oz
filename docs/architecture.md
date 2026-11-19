@@ -7,6 +7,49 @@ Deux fenêtres Tauri partagent le même backend Rust :
 
 Le frontend n'a aucune logique de sécurité. Il appelle des commandes Rust (`invoke`) et écoute des événements.
 
+```mermaid
+flowchart TB
+    subgraph front ["Frontend (TypeScript, two Tauri windows)"]
+        egg["Egg: index.html<br/>mic.ts, audio.ts, emotions.ts,<br/>motion.ts, access.ts, initiative.ts"]
+        panel["Admin panel: panel.html<br/>one module per tab"]
+    end
+
+    subgraph back ["Backend (Rust)"]
+        voice["voice.rs<br/>Gemini Live sessions"]
+        brain["brain.rs<br/>prompt, text chat"]
+        tools["tools.rs<br/>entry point, guards"]
+        reg["toolsets.rs<br/>registry"]
+        builtin["tools.rs, volume.rs, skills.rs<br/>built-in toolsets"]
+        kernel["kernel.rs<br/>files, PowerShell, workshop"]
+        modules["modules.rs<br/>installed modules"]
+        broker["broker.rs<br/>permissions"]
+        win["windows_api.rs, vision.rs, watch.rs"]
+        memory["memory.rs, skills.rs"]
+        init["initiative.rs"]
+        prefs["prefs.rs<br/>settings, %OWNER%"]
+    end
+
+    gemini(["Gemini API<br/>Live + text"])
+
+    egg -- "invoke / events" --> voice
+    panel -- invoke --> reg
+    panel -- invoke --> modules
+    voice <--> gemini
+    brain <--> gemini
+    voice -- "tool calls" --> tools
+    brain -- "tool calls" --> tools
+    tools --> reg
+    reg --> builtin
+    reg --> kernel
+    reg --> modules
+    builtin --> broker
+    broker --> win
+    brain --> memory
+    init --> voice
+    prefs -. "name, language, toolsets" .-> brain
+    prefs -. "disabled toolsets" .-> reg
+```
+
 ## Backend (`app/src-tauri/src/`)
 
 | Module | Rôle |
