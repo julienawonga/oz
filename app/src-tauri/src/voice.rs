@@ -14,6 +14,35 @@ use crate::journal::log_event;
 /// (on tue le processus PowerShell du TTS en cours).
 pub(crate) static TTS_CHILD: Mutex<Option<std::process::Child>> = Mutex::new(None);
 
+/// Retire les marqueurs que Gemini Live glisse dans la transcription
+/// (`<no speech>`, `<noise>`, `{pause}`…) : ce ne sont pas des mots.
+pub(crate) fn strip_markers(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut depth = 0;
+    for c in text.chars() {
+        match c {
+            '<' | '{' => depth += 1,
+            '>' | '}' if depth > 0 => depth -= 1,
+            _ if depth == 0 => out.push(c),
+            _ => {}
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::strip_markers;
+
+    #[test]
+    fn markers_are_not_words() {
+        assert_eq!(strip_markers("<no speech>").trim(), "");
+        assert_eq!(strip_markers(" <noise> ferme Spotify"), "  ferme Spotify");
+        assert_eq!(strip_markers("<no speech>{pause}"), "");
+        assert_eq!(strip_markers("bonjour"), "bonjour");
+    }
+}
+
 pub(crate) fn wav_header(data_len: u32, sample_rate: u32) -> Vec<u8> {
     let mut h = Vec::with_capacity(44);
     h.extend_from_slice(b"RIFF");
@@ -300,6 +329,8 @@ async fn read_live(app: AppHandle, ch: Live, mut rx: futures_util::stream::Split
     let mut said = String::new();
     // un outil a été appelé : le tour clos juste après n'a encore rien dit
     let mut tool_pending = false;
+    // réponse faite seulement de marqueurs (« <no speech>{pause} ») : Oz s'est tu
+    let mut silent_reply = false;
     while let Some(msg) = rx.next().await {
         let text = match msg {
             Ok(WsMessage::Text(t)) => t.to_string(),
@@ -366,15 +397,23 @@ async fn read_live(app: AppHandle, ch: Live, mut rx: futures_util::stream::Split
                     continue;
                 }
                 if let Some(tr) = sc["inputTranscription"]["text"].as_str() {
-                    heard.push_str(tr);
-                    voice_emit(&app, "user-text", tr);
+                    let tr = strip_markers(tr);
+                    if !tr.trim().is_empty() {
+                        heard.push_str(&tr);
+                        voice_emit(&app, "user-text", &tr);
+                    }
                 }
                 if v["voiceActivity"]["type"].as_str() == Some("ACTIVITY_END") {
                     log_event(&app, "voice", "live conversation : fin de phrase de %OWNER%");
                 }
                 if let Some(tr) = sc["outputTranscription"]["text"].as_str() {
-                    said.push_str(tr);
-                    voice_emit(&app, "talk-text", tr);
+                    let clean = strip_markers(tr);
+                    if !clean.trim().is_empty() {
+                        said.push_str(&clean);
+                        voice_emit(&app, "talk-text", &clean);
+                    } else if !tr.trim().is_empty() {
+                        silent_reply = true;
+                    }
                 }
                 if let Some(parts) = sc["modelTurn"]["parts"].as_array() {
                     for part in parts {
@@ -395,7 +434,13 @@ async fn read_live(app: AppHandle, ch: Live, mut rx: futures_util::stream::Split
                 // sinon c'était du bruit ou un outil sans réponse : on oublie,
                 // pour ne pas coller ces mots à l'échange suivant.
                 if turn_complete && said.trim().is_empty() {
-                    if tool_pending {
+                    if silent_reply {
+                        // l'outil a répondu, Oz n'a rien à dire : l'échange est clos
+                        silent_reply = false;
+                        tool_pending = false;
+                        heard.clear();
+                        audio_chunks = 0;
+                    } else if tool_pending {
                         tool_pending = false;
                     } else {
                         heard.clear();
@@ -404,6 +449,7 @@ async fn read_live(app: AppHandle, ch: Live, mut rx: futures_util::stream::Split
                 }
                 if turn_complete && !said.trim().is_empty() {
                     tool_pending = false;
+                    silent_reply = false;
                     log_event(&app, "voice", &format!("live conversation : tour terminé ({audio_chunks} chunk(s) audio)"));
                     let (user, oz) = (heard.trim().to_string(), said.trim().to_string());
                     // le texte de l'échange, relisible dans le journal

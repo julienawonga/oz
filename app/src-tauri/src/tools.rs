@@ -395,6 +395,24 @@ pub(crate) fn apply_layer(app: &AppHandle, behind: bool) -> Result<(), String> {
         win.set_always_on_bottom(false).and_then(|_| win.set_always_on_top(true))
     };
     done.map_err(|e| e.to_string())?;
+    if !behind {
+        // Les deux appels ci-dessus passent par la boucle d'événements : le
+        // « plus derrière » peut retirer le premier plan après coup. On le
+        // réimpose en dernier, sur le même thread, pour être sûr qu'Oz remonte.
+        if let Ok(h) = win.hwnd() {
+            let raw = h.0 as isize;
+            let _ = app.run_on_main_thread(move || {
+                use windows::Win32::Foundation::HWND;
+                use windows::Win32::UI::WindowsAndMessaging::{
+                    SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+                };
+                unsafe {
+                    let _ = SetWindowPos(HWND(raw as _), Some(HWND_TOPMOST), 0, 0, 0, 0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                }
+            });
+        }
+    }
     log_event(app, "layer", if behind { "derrière les fenêtres" } else { "devant les fenêtres" });
     Ok(())
 }
