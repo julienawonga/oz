@@ -58,6 +58,10 @@ opt-level = 3
 panic = "abort"
 strip = true
 
+# Infos de debug réduites : les .lib de debug passent de ~1,3 GB à bien moins.
+[profile.dev]
+debug = "line-tables-only"
+
 # La capture (redimensionnement + JPEG) est lente sans optimisation, même en dev.
 [profile.dev.package.image]
 opt-level = 3
