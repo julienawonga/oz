@@ -92,4 +92,3 @@ Le prompt vocal indique la fenêtre partagée quand la session s'ouvre pendant u
 - L'heure et la mémoire du prompt vocal sont figées à l'ouverture de la session.
 - `look_at_window` (capture ponctuelle) passe encore par le modèle texte, environ 5 s ; la vue en direct évite ce délai.
 - La vue en direct ne réagit que quand l'utilisateur parle : Oz ne signale pas de lui-même ce qu'il voit.
-- La transcription locale (whisper) est compilée mais n'est pas branchée dans l'interface.

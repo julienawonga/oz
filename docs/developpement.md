@@ -52,8 +52,6 @@ Les outils servent au chat écrit comme à la voix (Gemini comprend la demande e
 3. Un outil qui agit sur l'œuf émet `oz://do` ; l'œuf le traite dans `egg/intents.ts`.
 4. Le résultat est un texte court que le modèle reformule. Le mentionner dans `SYSTEM_PROMPT` (`brain.rs`) si Oz doit savoir qu'il en est capable.
 
-Le routeur par mots-clés de `broker.rs` (`detect_action`) ne sert plus qu'aux modèles locaux (Ollama), qui n'ont pas encore d'outils.
-
 ## Ajouter un onglet au panneau
 
 Créer `app/src/panel/<onglet>.ts` avec une fonction `render…`, ajouter le bouton (icône SVG et libellé) dans le bon groupe de la barre latérale de `panel.html`, et la ligne de routage dans `panel.ts`. Pour un réglage, utiliser les lignes `.setting` (libellé à gauche, commande à droite) et l'interrupteur `.switch`.
@@ -69,7 +67,7 @@ Dossier : `%APPDATA%\com.julienawonga.oz`. Pour repartir de zéro, fermer Oz et 
 | Symptôme | Piste |
 |---|---|
 | `ENOENT package.json` | Tu n'es pas dans `app/`. |
-| Pas de réponse de l'IA | Onglet *Modèles* : fournisseur choisi, clé saisie, Ollama lancé si local. Les erreurs HTTP s'affichent avec le code et la cause. |
+| Pas de réponse de l'IA | Onglet *Modèles* : clé Gemini saisie. Les erreurs HTTP s'affichent avec le code et la cause. |
 | Oz ne retrouve pas ses données | Vérifier que `com.julienawonga.nid` existait et que `com.julienawonga.oz` n'existait pas avant le premier lancement : la migration ne copie que vers un dossier absent. |
 | Le micro coupe trop vite, ou reste ouvert | Voir [voix](voix.md), section *Ouvrir et fermer le micro*. |
 | Le raccourci du micro ne marche pas | Une autre application l'utilise sans doute : le changer dans *Réglages* (un message dit s'il est refusé). |

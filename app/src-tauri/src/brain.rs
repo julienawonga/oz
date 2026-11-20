@@ -5,7 +5,6 @@ use std::fs;
 use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, Manager, State};
 
-use crate::broker::{detect_action, execute_action, BrokerState};
 use crate::journal::log_event;
 use crate::memory::{build_memory_block, spawn_consolidation, CONSOLIDATION_EVERY};
 use futures_util::StreamExt;
@@ -18,9 +17,7 @@ pub struct ChatMessage {
 
 #[derive(Deserialize, Serialize, Clone)]
 pub struct BrainConfig {
-    pub provider: String, // "ollama" | (plus tard : "gemini", "openai"...)
     pub model: String,
-    pub url: String,
     #[serde(default = "default_vision_model")]
     pub vision_model: String, // modèle vision (captures d'écran)
     #[serde(default)]
@@ -29,16 +26,16 @@ pub struct BrainConfig {
     pub api_key: String, // clé Gemini (pour le TTS audio)
 }
 
+pub(crate) const DEFAULT_MODEL: &str = "gemini-3.8-flash";
+
 pub(crate) fn default_vision_model() -> String {
-    "moondream:latest".into()
+    DEFAULT_MODEL.into()
 }
 
 impl Default for BrainConfig {
     fn default() -> Self {
         Self {
-            provider: "ollama".into(),
-            model: "llama3.2:3b".into(),
-            url: "http://127.0.0.1:11434".into(),
+            model: DEFAULT_MODEL.into(),
             vision_model: default_vision_model(),
             audio_model: String::new(),
             api_key: String::new(),
@@ -296,6 +293,13 @@ pub(crate) fn load_brain_config(app: &AppHandle) -> BrainConfig {
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
+    // anciennes configs Ollama : on revient aux modèles Gemini par défaut
+    if !cfg.model.starts_with("gemini") {
+        cfg.model = DEFAULT_MODEL.into();
+    }
+    if !cfg.vision_model.starts_with("gemini") {
+        cfg.vision_model = default_vision_model();
+    }
 
     if !cfg.api_key.is_empty() {
         // Ancienne config : clé en clair dans brain.json -> migration vers le coffre.
@@ -339,37 +343,17 @@ pub(crate) fn get_brain_config(state: State<'_, BrainState>) -> BrainConfig {
     state.config.lock().unwrap().clone()
 }
 
-/// Envoie la conversation au provider configuré, en STREAMING :
+/// Envoie la conversation à Gemini, en STREAMING :
 /// chaque token est poussé au frontend via le Channel, et la réponse
 /// complète est retournée à la fin (pour l'historique et le TTS).
 #[tauri::command]
 pub(crate) async fn chat(
     state: State<'_, BrainState>,
-    broker: State<'_, BrokerState>,
     app: AppHandle,
     user_message: String,
     on_chunk: tauri::ipc::Channel<String>,
 ) -> Result<String, String> {
     let cfg = state.config.lock().unwrap().clone();
-
-    // 0. Gemini comprend lui-même la demande et appelle les outils (tools.rs).
-    // Les modèles locaux (Ollama) n'ont pas encore d'outils : en attendant,
-    // eux seuls gardent l'ancien routeur par mots-clés.
-    if cfg.provider != "gemini" {
-    if let Some((action, target)) = detect_action(&user_message) {
-        let text = execute_action(&broker, &app, &action, &target);
-        let mut hist = state.history.lock().unwrap();
-        hist.push(ChatMessage {
-            role: "user".into(),
-            content: user_message,
-        });
-        hist.push(ChatMessage {
-            role: "assistant".into(),
-            content: text.clone(),
-        });
-        return Ok(text);
-    }
-    }
 
     let user_msg = user_message.clone();
     crate::initiative::note_exchange();
@@ -401,240 +385,175 @@ pub(crate) async fn chat(
     }];
     messages.extend(state.history.lock().unwrap().iter().cloned());
 
-    match cfg.provider.as_str() {
-        // ── Gemini : streaming SSE natif + outils (function calling) ──
-        // Gemini comprend la demande et appelle les outils ; on exécute,
-        // on lui renvoie le résultat, il formule la réponse. Jusqu'à 5 tours.
-        "gemini" => {
-            let url = format!(
-                "https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse",
-                cfg.model
-            );
-            // sépare le prompt système (avec bloc mémoire) des tours de conversation
-            let (sys, turns): (Vec<&ChatMessage>, Vec<&ChatMessage>) =
-                messages.iter().partition(|m| m.role == "system");
-            let system_instruction = serde_json::json!({
-                "parts": sys.iter().map(|m| serde_json::json!({"text": m.content})).collect::<Vec<_>>()
-            });
-            let mut contents: Vec<serde_json::Value> = turns
-                .iter()
-                .map(|m| {
-                    serde_json::json!({
-                        "role": if m.role == "assistant" { "model" } else { &m.role },
-                        "parts": [{"text": &m.content}]
-                    })
-                })
-                .collect();
+    // ── Gemini : streaming SSE natif + outils (function calling) ──
+    // Gemini comprend la demande et appelle les outils ; on exécute,
+    // on lui renvoie le résultat, il formule la réponse. Jusqu'à 5 tours.
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse",
+        cfg.model
+    );
+    // sépare le prompt système (avec bloc mémoire) des tours de conversation
+    let (sys, turns): (Vec<&ChatMessage>, Vec<&ChatMessage>) =
+        messages.iter().partition(|m| m.role == "system");
+    let system_instruction = serde_json::json!({
+        "parts": sys.iter().map(|m| serde_json::json!({"text": m.content})).collect::<Vec<_>>()
+    });
+    let mut contents: Vec<serde_json::Value> = turns
+        .iter()
+        .map(|m| {
+            serde_json::json!({
+                "role": if m.role == "assistant" { "model" } else { &m.role },
+                "parts": [{"text": &m.content}]
+            })
+        })
+        .collect();
 
-            let mut full = String::new();
-            eprintln!("[oz] {} brain : question envoyée à Gemini", crate::journal::clock_ms());
-            const ROUNDS: usize = 5;
-            // Réflexion réduite : c'est une conversation à voix haute, la
-            // latence avant le premier mot compte plus que la profondeur.
-            // « low » est le niveau le plus rapide de gemini-3.8-flash
-            // (« minimal » y est refusé). Si un modèle refuse le réglage (400),
-            // on s'en passe pour toute la session, sans réessai.
-            use std::sync::atomic::{AtomicUsize, Ordering};
-            const LEVELS: [&str; 1] = ["low"];
-            static THINK_IDX: AtomicUsize = AtomicUsize::new(0);
-            for round in 0..ROUNDS {
-                // texte d'un tour précédent (« Je regarde. ») : on sépare
-                let mut need_space = !full.is_empty() && !full.ends_with(char::is_whitespace);
-                let resp = loop {
-                    let idx = THINK_IDX.load(Ordering::Relaxed);
-                    let mut gen_cfg = serde_json::json!({"temperature": 0.7});
-                    if let Some(level) = LEVELS.get(idx) {
-                        gen_cfg["thinkingConfig"] = serde_json::json!({"thinkingLevel": level});
-                    }
-                    let mut body = serde_json::json!({
-                        "contents": contents,
-                        "systemInstruction": system_instruction,
-                        "generationConfig": gen_cfg
-                    });
-                    // dernier tour : plus d'outils, le modèle doit répondre en texte
-                    if round + 1 < ROUNDS {
-                        body["tools"] = crate::tools::declarations(&app);
-                    }
-                    let resp = match http_client()
-                        .post(&url)
-                        .header("x-goog-api-key", &cfg.api_key)
-                        .json(&body)
-                        .send()
-                        .await
-                    {
-                        Ok(r) => r,
-                        Err(e) => {
-                            state.history.lock().unwrap().pop();
-                            return Err(format!("Gemini injoignable ({e}) — connexion internet ?"));
-                        }
-                    };
-                    if idx < LEVELS.len() && resp.status() == reqwest::StatusCode::BAD_REQUEST {
-                        let why = resp.text().await.unwrap_or_default();
-                        let why: String = why.chars().filter(|c| *c != '\n').take(300).collect();
-                        if !why.to_lowercase().contains("think") {
-                            // autre refus (outil, historique...) : on le montre tel quel
-                            state.history.lock().unwrap().pop();
-                            return Err(format!("Gemini a refusé la requête (400) : {why}"));
-                        }
-                        eprintln!("[oz] {} brain : réflexion « {} » refusée : {why}", crate::journal::clock_ms(), LEVELS[idx]);
-                        THINK_IDX.store(idx + 1, Ordering::Relaxed);
-                        continue;
-                    }
-                    break resp;
-                };
-                if !resp.status().is_success() {
-                    // le message utilisateur ne doit pas rester orphelin dans l'historique
-                    state.history.lock().unwrap().pop();
-                    return Err(http_error("Gemini", resp).await);
-                }
-
-                // Flux SSE : lignes "data: {...}". On garde TOUTES les parts du
-                // modèle telles quelles (signatures de pensée comprises) pour
-                // les lui renvoyer avec le résultat des outils.
-                let mut model_parts: Vec<serde_json::Value> = Vec::new();
-                let mut calls: Vec<serde_json::Value> = Vec::new();
-                let mut buffer = String::new();
-                let mut stream = resp.bytes_stream();
-                while let Some(chunk) = stream.next().await {
-                    let bytes = match chunk {
-                        Ok(b) => b,
-                        Err(e) => {
-                            state.history.lock().unwrap().pop();
-                            return Err(format!("Réponse de Gemini interrompue ({e})"));
-                        }
-                    };
-                    buffer.push_str(&String::from_utf8_lossy(&bytes));
-                    while let Some(pos) = buffer.find('\n') {
-                        let line: String = buffer.drain(..=pos).collect();
-                        let line = line.trim();
-                        if !line.starts_with("data: ") { continue; }
-                        let Ok(v) = serde_json::from_str::<serde_json::Value>(&line[6..]) else { continue };
-                        let Some(parts) = v["candidates"][0]["content"]["parts"].as_array() else { continue };
-                        for part in parts {
-                            model_parts.push(part.clone());
-                            if part["thought"].as_bool() == Some(true) {
-                                continue; // pensée interne : jamais affichée ni lue
-                            }
-                            if part.get("functionCall").is_some() {
-                                calls.push(part["functionCall"].clone());
-                            } else if let Some(tok) = part["text"].as_str() {
-                                if !tok.is_empty() {
-                                    if full.is_empty() {
-                                        eprintln!("[oz] {} brain : premier mot de la réponse", crate::journal::clock_ms());
-                                    }
-                                    if need_space {
-                                        need_space = false;
-                                        full.push(' ');
-                                        let _ = on_chunk.send(" ".into());
-                                    }
-                                    full.push_str(tok);
-                                    let _ = on_chunk.send(tok.to_string());
-                                }
-                            }
-                        }
-                    }
-                }
-                if calls.is_empty() {
-                    break; // réponse finale
-                }
-                // exécute les outils demandés, puis renvoie les résultats au modèle
-                contents.push(serde_json::json!({"role": "model", "parts": model_parts}));
-                let mut responses = Vec::new();
-                for call in calls {
-                    let name = call["name"].as_str().unwrap_or("").to_string();
-                    let result = crate::tools::run(&app, &name, &call["args"]).await;
-                    responses.push(serde_json::json!({
-                        "functionResponse": {"name": name, "response": {"result": result}}
-                    }));
-                }
-                contents.push(serde_json::json!({"role": "user", "parts": responses}));
+    let mut full = String::new();
+    eprintln!("[oz] {} brain : question envoyée à Gemini", crate::journal::clock_ms());
+    const ROUNDS: usize = 5;
+    // Réflexion réduite : c'est une conversation à voix haute, la
+    // latence avant le premier mot compte plus que la profondeur.
+    // « low » est le niveau le plus rapide de gemini-3.8-flash
+    // (« minimal » y est refusé). Si un modèle refuse le réglage (400),
+    // on s'en passe pour toute la session, sans réessai.
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    const LEVELS: [&str; 1] = ["low"];
+    static THINK_IDX: AtomicUsize = AtomicUsize::new(0);
+    for round in 0..ROUNDS {
+        // texte d'un tour précédent (« Je regarde. ») : on sépare
+        let mut need_space = !full.is_empty() && !full.ends_with(char::is_whitespace);
+        let resp = loop {
+            let idx = THINK_IDX.load(Ordering::Relaxed);
+            let mut gen_cfg = serde_json::json!({"temperature": 0.7});
+            if let Some(level) = LEVELS.get(idx) {
+                gen_cfg["thinkingConfig"] = serde_json::json!({"thinkingLevel": level});
             }
-            if full.trim().is_empty() {
-                // jamais de réponse vide : ni silence, ni tour vide dans l'historique
-                full = "Je n'ai pas réussi à te répondre, tu peux reformuler ?".into();
-                let _ = on_chunk.send(full.clone());
-            }
-            state.history.lock().unwrap().push(ChatMessage {
-                role: "assistant".into(),
-                content: full.clone(),
+            let mut body = serde_json::json!({
+                "contents": contents,
+                "systemInstruction": system_instruction,
+                "generationConfig": gen_cfg
             });
-
-            // consolidation identique
-            let should = {
-                let mut since = state.since_consolidation.lock().unwrap();
-                *since += 1;
-                *since >= CONSOLIDATION_EVERY
-            };
-            if should {
-                *state.since_consolidation.lock().unwrap() = 0;
-                let exchanges: Vec<ChatMessage> =
-                    state.history.lock().unwrap().iter().rev().take(12).rev().cloned().collect();
-                if exchanges.len() >= 2 {
-                    spawn_consolidation(app, exchanges);
-                }
+            // dernier tour : plus d'outils, le modèle doit répondre en texte
+            if round + 1 < ROUNDS {
+                body["tools"] = crate::tools::declarations(&app);
             }
-            Ok(full)
-        }
-        "ollama" => {
-            let url = format!("{}/api/chat", cfg.url);
-            let body = serde_json::json!({
-                "model": cfg.model,
-                "messages": messages,
-                "stream": true,
-                "think": false
-            });
-            let resp = http_client()
+            let resp = match http_client()
                 .post(&url)
+                .header("x-goog-api-key", &cfg.api_key)
                 .json(&body)
                 .send()
                 .await
-                .map_err(|e| {
+            {
+                Ok(r) => r,
+                Err(e) => {
                     state.history.lock().unwrap().pop();
-                    format!("Ollama injoignable ({e}) — serveur lancé ?")
-                })?;
-            if !resp.status().is_success() {
-                state.history.lock().unwrap().pop();
-                return Err(http_error("Ollama", resp).await);
+                    return Err(format!("Gemini injoignable ({e}) — connexion internet ?"));
+                }
+            };
+            if idx < LEVELS.len() && resp.status() == reqwest::StatusCode::BAD_REQUEST {
+                let why = resp.text().await.unwrap_or_default();
+                let why: String = why.chars().filter(|c| *c != '\n').take(300).collect();
+                if !why.to_lowercase().contains("think") {
+                    // autre refus (outil, historique...) : on le montre tel quel
+                    state.history.lock().unwrap().pop();
+                    return Err(format!("Gemini a refusé la requête (400) : {why}"));
+                }
+                eprintln!("[oz] {} brain : réflexion « {} » refusée : {why}", crate::journal::clock_ms(), LEVELS[idx]);
+                THINK_IDX.store(idx + 1, Ordering::Relaxed);
+                continue;
             }
+            break resp;
+        };
+        if !resp.status().is_success() {
+            // le message utilisateur ne doit pas rester orphelin dans l'historique
+            state.history.lock().unwrap().pop();
+            return Err(http_error("Gemini", resp).await);
+        }
 
-            // Flux NDJSON : une ligne JSON par token
-            let mut full = String::new();
-            let mut buffer = String::new();
-            let mut stream = resp.bytes_stream();
-            while let Some(chunk) = stream.next().await {
-                let bytes = chunk.map_err(|e| e.to_string())?;
-                buffer.push_str(&String::from_utf8_lossy(&bytes));
-                while let Some(pos) = buffer.find('\n') {
-
-
-                    let line: String = buffer.drain(..=pos).collect();
-                    let line = line.trim();
-                    if line.is_empty() {
-                        continue;
+        // Flux SSE : lignes "data: {...}". On garde TOUTES les parts du
+        // modèle telles quelles (signatures de pensée comprises) pour
+        // les lui renvoyer avec le résultat des outils.
+        let mut model_parts: Vec<serde_json::Value> = Vec::new();
+        let mut calls: Vec<serde_json::Value> = Vec::new();
+        let mut buffer = String::new();
+        let mut stream = resp.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let bytes = match chunk {
+                Ok(b) => b,
+                Err(e) => {
+                    state.history.lock().unwrap().pop();
+                    return Err(format!("Réponse de Gemini interrompue ({e})"));
+                }
+            };
+            buffer.push_str(&String::from_utf8_lossy(&bytes));
+            while let Some(pos) = buffer.find('\n') {
+                let line: String = buffer.drain(..=pos).collect();
+                let line = line.trim();
+                if !line.starts_with("data: ") { continue; }
+                let Ok(v) = serde_json::from_str::<serde_json::Value>(&line[6..]) else { continue };
+                let Some(parts) = v["candidates"][0]["content"]["parts"].as_array() else { continue };
+                for part in parts {
+                    model_parts.push(part.clone());
+                    if part["thought"].as_bool() == Some(true) {
+                        continue; // pensée interne : jamais affichée ni lue
                     }
-                    let v: serde_json::Value =
-                        serde_json::from_str(line).map_err(|e| e.to_string())?;
-                    if let Some(tok) = v["message"]["content"].as_str() {
+                    if part.get("functionCall").is_some() {
+                        calls.push(part["functionCall"].clone());
+                    } else if let Some(tok) = part["text"].as_str() {
                         if !tok.is_empty() {
+                            if full.is_empty() {
+                                eprintln!("[oz] {} brain : premier mot de la réponse", crate::journal::clock_ms());
+                            }
+                            if need_space {
+                                need_space = false;
+                                full.push(' ');
+                                let _ = on_chunk.send(" ".into());
+                            }
                             full.push_str(tok);
                             let _ = on_chunk.send(tok.to_string());
                         }
                     }
-                    if v["done"].as_bool() == Some(true) {
-                        state.history.lock().unwrap().push(ChatMessage {
-                            role: "assistant".into(),
-                            content: full.clone(),
-                        });
-                        return Ok(full);
-                    }
                 }
             }
-            state.history.lock().unwrap().push(ChatMessage {
-                role: "assistant".into(),
-                content: full.clone(),
-            });
-            Ok(full)
         }
-        other => Err(format!("provider inconnu : {other}")),
+        if calls.is_empty() {
+            break; // réponse finale
+        }
+        // exécute les outils demandés, puis renvoie les résultats au modèle
+        contents.push(serde_json::json!({"role": "model", "parts": model_parts}));
+        let mut responses = Vec::new();
+        for call in calls {
+            let name = call["name"].as_str().unwrap_or("").to_string();
+            let result = crate::tools::run(&app, &name, &call["args"]).await;
+            responses.push(serde_json::json!({
+                "functionResponse": {"name": name, "response": {"result": result}}
+            }));
+        }
+        contents.push(serde_json::json!({"role": "user", "parts": responses}));
     }
+    if full.trim().is_empty() {
+        // jamais de réponse vide : ni silence, ni tour vide dans l'historique
+        full = "Je n'ai pas réussi à te répondre, tu peux reformuler ?".into();
+        let _ = on_chunk.send(full.clone());
+    }
+    state.history.lock().unwrap().push(ChatMessage {
+        role: "assistant".into(),
+        content: full.clone(),
+    });
+
+    // consolidation identique
+    let should = {
+        let mut since = state.since_consolidation.lock().unwrap();
+        *since += 1;
+        *since >= CONSOLIDATION_EVERY
+    };
+    if should {
+        *state.since_consolidation.lock().unwrap() = 0;
+        let exchanges: Vec<ChatMessage> =
+            state.history.lock().unwrap().iter().rev().take(12).rev().cloned().collect();
+        if exchanges.len() >= 2 {
+            spawn_consolidation(app, exchanges);
+        }
+    }
+    Ok(full)
 }

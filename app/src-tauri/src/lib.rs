@@ -4,9 +4,9 @@
 //
 //  windows_api : Win32 (fenêtres, capture, actions)     cursor  : curseur global
 //  broker      : permissions, routeur d'intentions      journal : quittances
-//  brain       : LLM (Ollama / Gemini), chat streaming  memory  : faits, épisodes, album
+//  brain       : LLM (Gemini), chat streaming  memory  : faits, épisodes, album
 //  vision      : capture + description                  zones   : zones interdites
-//  voice       : Gemini Live, micro, TTS, whisper
+//  voice       : Gemini Live, micro, TTS
 //  initiative  : Oz engage la conversation             prefs   : réglages de comportement
 //  watch       : « Regarde avec moi » (vue en direct)   places  : lieux nommés
 
@@ -110,7 +110,6 @@ pub fn run() {
             brain::flush_memory,
             brain::get_brain_config,
             brain::set_brain_config,
-            voice::transcribe,
             voice::speak,
             voice::stop_voice,
             vision::look_at,

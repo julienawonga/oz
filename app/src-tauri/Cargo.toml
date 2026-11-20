@@ -27,7 +27,6 @@ futures-util = "0.3"
 tokio = { version = "1", features = ["time", "sync", "process"] }
 rustls = { version = "0.23", features = ["ring"] }
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
-whisper-rs = "0.16"
 windows = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_UI_WindowsAndMessaging",

@@ -154,10 +154,7 @@ pub(crate) fn spawn_consolidation(app: AppHandle, exchanges: Vec<ChatMessage>) {
             serde_json::to_string(&exchanges).unwrap_or_default()
         );
         let prompt = crate::prefs::personalize(&app, CONSOLIDATION_PROMPT);
-        let text = match cfg.provider.as_str() {
-            "gemini" => consolidate_gemini(&cfg, &prompt, &convo).await,
-            _ => consolidate_ollama(&cfg, &prompt, &convo).await,
-        };
+        let text = consolidate_gemini(&cfg, &prompt, &convo).await;
         let text = match text {
             Ok(t) => t,
             Err(e) => {
@@ -220,25 +217,6 @@ pub(crate) fn spawn_consolidation(app: AppHandle, exchanges: Vec<ChatMessage>) {
         log_event(&app, "memory", &format!("consolidation : {} fait(s) retenu(s), {} remplacé(s)", kept, replaced.len()));
         crate::skills::maybe_reflect(&app);
     });
-}
-
-async fn consolidate_ollama(cfg: &crate::brain::BrainConfig, prompt: &str, convo: &str) -> Result<String, String> {
-    let body = serde_json::json!({
-        "model": cfg.model,
-        "messages": [{"role": "system", "content": prompt},
-                     {"role": "user", "content": convo}],
-        "stream": false,
-        "think": false,
-        "format": "json"
-    });
-    let resp = http_client()
-        .post(format!("{}/api/chat", cfg.url))
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    let json = resp.json::<serde_json::Value>().await.map_err(|e| e.to_string())?;
-    json["message"]["content"].as_str().map(str::to_string).ok_or_else(|| "réponse vide".into())
 }
 
 async fn consolidate_gemini(cfg: &crate::brain::BrainConfig, prompt: &str, convo: &str) -> Result<String, String> {

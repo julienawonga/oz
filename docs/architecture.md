@@ -55,19 +55,19 @@ flowchart TB
 | Module | Rôle |
 |---|---|
 | `lib.rs` | Déclare les modules, migre les anciennes données, enregistre les commandes, le raccourci global et la boucle d'initiative. |
-| `broker.rs` | Permissions, demandes d'accès, exécution des actions sur les fenêtres. Garde un routeur par mots-clés pour Ollama seulement. Contient les tests. |
+| `broker.rs` | Permissions, demandes d'accès, exécution des actions sur les fenêtres. Contient les tests. |
 | `toolsets.rs` | Registre des outils, rangés en toolsets (à la façon d'Hermes Agent) : rassemble les toolsets de chaque module, ne déclare à Gemini que les actifs, refuse les outils d'un toolset coupé. |
 | `modules.rs` | Modules installables : préparation (git ou dossier), relecture, installation avec approbation du code des scripts, un toolset par module, skills livrés. Voir [modules.md](modules.md). |
 | `tools.rs` | Toolsets natifs (Fenêtres, Vision, Corps, Expression, Conversation), point d'entrée `run` (garde-fous communs, journal) et exécution des outils natifs. |
-| `brain.rs` | Chat écrit (Gemini en SSE avec outils, Ollama en NDJSON), prompt d'Oz dans la langue choisie, clé API dans le coffre Windows. |
-| `voice.rs` | Sessions Gemini Live (conversation et lecture), micro, consignes `live_prompt`, whisper. |
+| `brain.rs` | Chat écrit (Gemini en SSE avec outils), prompt d'Oz dans la langue choisie, clé API dans le coffre Windows. |
+| `voice.rs` | Sessions Gemini Live (conversation et lecture), micro, consignes `live_prompt`. |
 | `initiative.rs` | Oz engage la conversation : signaux, garde-fous, jugement par Gemini. |
 | `prefs.rs` | Réglages : langue, raccourci du micro, transcription, initiative, interruption à la voix, mode de déplacement, devant/derrière les fenêtres, couleur et texture. |
 | `skills.rs` | Skills (`skills/<id>/SKILL.md`) : liste dans les consignes, outil `read_skill`, relecture du journal qui propose des skills (toutes les 3 consolidations). |
 | `kernel.rs` | Noyau à la Pi : fichiers de l'atelier, PowerShell avec accord, outils fabriqués par Oz (`create_tool`, `use_tool`), demandes d'accord et leur résultat renvoyé dans la conversation. |
 | `volume.rs` | Volume du système et baisse automatique des autres applis pendant l'écoute (sessions audio Windows, Oz et ses processus WebView2 épargnés). |
 | `places.rs` | Lieux nommés (« la maison »). |
-| `memory.rs` | Faits durables, épisodes, souvenirs sur les fenêtres, consolidation (Gemini ou Ollama). |
+| `memory.rs` | Faits durables, épisodes, souvenirs sur les fenêtres, consolidation par Gemini. |
 | `vision.rs` | Capture d'une fenêtre autorisée et description ; résolution de fenêtre et contrôle du regard partagés (`lookable_window`, `can_look`). |
 | `watch.rs` | « Regarde avec moi » : une image par seconde d'une fenêtre autorisée dans la session vocale. |
 | `zones.rs` | Zones interdites à l'œuf. |

@@ -68,72 +68,51 @@ pub(crate) async fn look_at(
 
     let cfg = state.config.lock().unwrap().clone();
 
-    // ── Gemini vision : le même modèle que la conversation ──
-    if cfg.provider == "gemini" && !cfg.api_key.is_empty() {
-        let body = serde_json::json!({
-            "contents": [{
-                "role": "user",
-                "parts": [
-                    {"text": format!("{} Réponds en {}, très brièvement, en texte simple sans markdown.", question, crate::prefs::language_name(&app))},
-                    {"inlineData": {"mimeType": "image/jpeg", "data": b64}}
-                ]
-            }],
-            // lecture d'écran : pas besoin de réfléchir longtemps
-            "generationConfig": {"thinkingConfig": {"thinkingLevel": "low"}}
-        });
-        let url = format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
-            cfg.vision_model
-        );
-        let mut body = body;
-        let mut resp = http_client()
+    if cfg.api_key.is_empty() {
+        return Err("pas de clé Gemini (onglet Modèles)".into());
+    }
+    let body = serde_json::json!({
+        "contents": [{
+            "role": "user",
+            "parts": [
+                {"text": format!("{} Réponds en {}, très brièvement, en texte simple sans markdown.", question, crate::prefs::language_name(&app))},
+                {"inlineData": {"mimeType": "image/jpeg", "data": b64}}
+            ]
+        }],
+        // lecture d'écran : pas besoin de réfléchir longtemps
+        "generationConfig": {"thinkingConfig": {"thinkingLevel": "low"}}
+    });
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
+        cfg.vision_model
+    );
+    let mut body = body;
+    let mut resp = http_client()
+        .post(&url)
+        .header("x-goog-api-key", &cfg.api_key)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Gemini vision injoignable : {e}"))?;
+    if resp.status() == reqwest::StatusCode::BAD_REQUEST {
+        // modèle vision qui refuse le niveau de réflexion : on s'en passe
+        body.as_object_mut().unwrap().remove("generationConfig");
+        resp = http_client()
             .post(&url)
             .header("x-goog-api-key", &cfg.api_key)
             .json(&body)
             .send()
             .await
             .map_err(|e| format!("Gemini vision injoignable : {e}"))?;
-        if resp.status() == reqwest::StatusCode::BAD_REQUEST {
-            // modèle vision qui refuse le niveau de réflexion : on s'en passe
-            body.as_object_mut().unwrap().remove("generationConfig");
-            resp = http_client()
-                .post(&url)
-                .header("x-goog-api-key", &cfg.api_key)
-                .json(&body)
-                .send()
-                .await
-                .map_err(|e| format!("Gemini vision injoignable : {e}"))?;
-        }
-        if !resp.status().is_success() {
-            return Err(crate::brain::http_error("Gemini vision", resp).await);
-        }
-        let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-        let desc = json["candidates"][0]["content"]["parts"][0]["text"]
-            .as_str()
-            .unwrap_or("…")
-            .to_string();
-        remember(&app, w.key(), desc.chars().take(300).collect());
-        return Ok(desc);
     }
-
-    // ── Ollama vision (moondream) ──
-    let body = serde_json::json!({
-        "model": cfg.vision_model,
-        "prompt": format!("{} Réponds en {}, très brièvement, en texte simple sans markdown.", question, crate::prefs::language_name(&app)),
-        "images": [b64],
-        "stream": false
-    });
-    let url = format!("{}/api/generate", cfg.url);
-    let client = http_client();
-    let resp = client
-        .post(&url)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("Ollama injoignable ({e})"))?;
+    if !resp.status().is_success() {
+        return Err(crate::brain::http_error("Gemini vision", resp).await);
+    }
     let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-    let desc = json["response"].as_str().unwrap_or("…").to_string();
-    // 🖼️ Auto-mémoire : il retient ce qu'il a vu de ce lieu
+    let desc = json["candidates"][0]["content"]["parts"][0]["text"]
+        .as_str()
+        .unwrap_or("…")
+        .to_string();
     remember(&app, w.key(), desc.chars().take(300).collect());
     Ok(desc)
 }

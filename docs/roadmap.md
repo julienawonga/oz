@@ -38,7 +38,6 @@ Dans l'ordre :
 2. **Skills au format standard** (agentskills.io, compatible Hermes) : importer et partager des skills.
 3. **Hooks de modules** : du code appelé en début et fin de conversation, avant une réponse.
 4. **Réactions spontanées** : une émotion ou une remarque d'Oz sur ce qu'il voit (« Regarde avec moi ») ou entend, sans attendre une question.
-5. **Outils pour les modèles locaux** (Ollama), pour retirer le dernier routeur par mots-clés.
 
 À ranger en chemin :
 

@@ -1,124 +1,13 @@
-//! Voix : session Gemini Live (full-duplex), micro streaming, TTS, STT local.
+//! Voix : session Gemini Live (full-duplex), micro streaming, TTS.
 
 use futures_util::{SinkExt, StreamExt};
 use std::fs;
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio_tungstenite::tungstenite::Message as WsMessage;
-use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 use crate::brain::{http_client, BrainState};
 use crate::journal::log_event;
-
-pub(crate) static WHISPER_CTX: OnceLock<WhisperContext> = OnceLock::new();
-
-pub(crate) fn whisper_model_path() -> Option<std::path::PathBuf> {
-    std::env::var("APPDATA").ok().map(|d| {
-        std::path::PathBuf::from(d)
-            .join("com.julienawonga.oz")
-            .join("models")
-            .join("ggml-base.bin")
-    })
-}
-
-pub(crate) fn init_whisper() -> Result<&'static WhisperContext, String> {
-    if let Some(ctx) = WHISPER_CTX.get() {
-        return Ok(ctx);
-    }
-    let path = whisper_model_path().ok_or("chemin du modèle introuvable")?;
-    if !path.exists() {
-        return Err("ggml-base.bin absent des modèles".into());
-    }
-    let ctx = WhisperContext::new_with_params(
-        path.to_str().unwrap(),
-        WhisperContextParameters::default(),
-    )
-    .map_err(|e| e.to_string())?;
-    let _ = WHISPER_CTX.set(ctx);
-    Ok(WHISPER_CTX.get().unwrap())
-}
-
-/// (config Gemini dispo pour les briques vocales)
-pub(crate) fn gemini_voice_config(app: &AppHandle) -> Option<(String, String)> {
-    // la clé vit dans le coffre Windows, chargée en mémoire dans BrainState
-    let cfg = app.state::<BrainState>().config.lock().unwrap().clone();
-    if cfg.api_key.is_empty() { return None; }
-    Some((cfg.model, cfg.api_key))
-}
-
-pub(crate) fn bytemuck_cast(samples: &[i16]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(samples.len() * 2);
-    for s in samples {
-        out.extend_from_slice(&s.to_le_bytes());
-    }
-    out
-}
-
-/// Reçoit du PCM 16 kHz mono (Int16) et retourne le texte transcrit.
-#[tauri::command]
-pub(crate) async fn transcribe(app: AppHandle, samples: Vec<i16>) -> Result<String, String> {
-    // ── Gemini transcription (provider gemini + clé) : plus rapide que whisper local ──
-    {
-        let cfg = gemini_voice_config(&app);
-        if let Some((model, key)) = cfg {
-            use base64::Engine as _;
-            let b64 = base64::engine::general_purpose::STANDARD.encode(bytemuck_cast(&samples));
-            let body = serde_json::json!({
-                "contents": [{
-                    "role": "user",
-                    "parts": [
-                        {"text": "Transcris exactement cet audio en français. Réponds UNIQUEMENT avec la transcription, rien d'autre."},
-                        {"inlineData": {"mimeType": "audio/pcm;rate=16000", "data": b64}}
-                    ]
-                }]
-            });
-            let url = format!(
-                "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
-                model
-            );
-            let resp = http_client()
-                .post(&url)
-                .header("x-goog-api-key", &key)
-                .json(&body)
-                .send()
-                .await
-                .map_err(|e| format!("Gemini STT injoignable : {e}"))?;
-            let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-            let text = json["candidates"][0]["content"]["parts"][0]["text"]
-                .as_str()
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            if !text.is_empty() {
-                return Ok(text);
-            }
-            // si Gemini échoue, on retombe sur whisper local ci-dessous
-        }
-    }
-
-    let ctx = init_whisper()?;
-    let mut state = ctx.create_state().map_err(|e| e.to_string())?;
-    let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-    params.set_language(Some("fr"));
-    params.set_print_progress(false);
-    params.set_print_special(false);
-    params.set_print_realtime(false);
-    params.set_print_timestamps(false);
-    let mut audio = vec![0.0f32; samples.len()];
-    whisper_rs::convert_integer_to_float_audio(&samples, &mut audio)
-        .map_err(|e| e.to_string())?;
-    state.full(params, &audio).map_err(|e| e.to_string())?;
-    let n = state.full_n_segments();
-    let mut text = String::new();
-    for i in 0..n {
-        if let Some(seg) = state.get_segment(i) {
-            if let Ok(s) = seg.to_str_lossy() {
-                text.push_str(&s);
-            }
-        }
-    }
-    Ok(text.trim().to_string())
-}
 
 /// Lit le texte à voix haute avec la voix française du système (SAPI).
 /// Canal unique : une nouvelle parole INTERROMPT la précédente

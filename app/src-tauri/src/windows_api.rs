@@ -166,7 +166,6 @@ pub fn friendly_name(process: &str) -> String {
         "onvue" => "OnVUE",
         "spotify" => "Spotify",
         "discord" => "Discord",
-        "ollama" => "Ollama",
         "telegram" => "Telegram",
         "steam" => "Steam",
         "obs64" => "OBS",

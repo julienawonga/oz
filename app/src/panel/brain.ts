@@ -4,7 +4,7 @@ import { content, icon, esc, toast, pageHead } from "./util";
 
 // ── Modèles ──
 interface BrainCfg {
-  provider: string; model: string; url: string;
+  model: string;
   vision_model: string; audio_model: string; api_key: string;
 }
 
@@ -16,15 +16,9 @@ export async function renderBrain(): Promise<void> {
      ${hint ? `<div class="hint">${hint}</div>` : ""}</div>`;
 
   content.innerHTML =
-    pageHead("Modèles", "Fournisseur et modèles utilisés pour la conversation, la vision et la voix. Les changements sont pris en compte au message suivant.") +
-    `<section class="panel"><div class="panel-head"><h3>Conversation</h3></div>
-      <div class="field"><label for="b-provider">Fournisseur</label>
-        <select id="b-provider">
-          <option value="gemini"${cfg.provider === "gemini" ? " selected" : ""}>Gemini (cloud)</option>
-          <option value="ollama"${cfg.provider === "ollama" ? " selected" : ""}>Ollama (local)</option>
-        </select></div>` +
+    pageHead("Modèles", "Modèles Gemini utilisés pour la conversation, la vision et la voix. Les changements sont pris en compte au message suivant.") +
+    `<section class="panel"><div class="panel-head"><h3>Conversation</h3></div>` +
     field("b-model", "Modèle", cfg.model) +
-    field("b-url", "URL du serveur Ollama", cfg.url, "Utilisée uniquement avec le fournisseur Ollama.") +
     `</section>
     <section class="panel"><div class="panel-head"><h3>Vision et voix</h3></div>` +
     field("b-vision", "Modèle de vision", cfg.vision_model, "Analyse des captures de fenêtres autorisées.") +
@@ -41,11 +35,6 @@ export async function renderBrain(): Promise<void> {
     </section>`;
 
   const val = (id: string) => (document.getElementById(id) as HTMLInputElement).value.trim();
-  // l'URL d'Ollama n'a de sens qu'avec Ollama
-  const urlField = document.getElementById("b-url")!.closest(".field") as HTMLElement;
-  const syncProvider = () => (urlField.style.display = val("b-provider") === "ollama" ? "" : "none");
-  document.getElementById("b-provider")!.addEventListener("change", syncProvider);
-  syncProvider();
   const keyInput = document.getElementById("b-key") as HTMLInputElement;
   document.getElementById("b-reveal")!.addEventListener("click", (e) => {
     const show = keyInput.type === "password";
@@ -53,11 +42,11 @@ export async function renderBrain(): Promise<void> {
     (e.currentTarget as HTMLElement).querySelector("span")!.textContent = show ? "Masquer" : "Afficher";
   });
   document.getElementById("b-save")!.addEventListener("click", async () => {
-    if (val("b-provider") === "gemini" && !val("b-key")) return toast("Une clé API est requise pour Gemini", false);
+    if (!val("b-key")) return toast("Une clé API est requise pour Gemini", false);
     if (!val("b-model")) return toast("Le modèle de conversation est requis", false);
     await invoke("set_brain_config", {
       config: {
-        provider: val("b-provider"), model: val("b-model"), url: val("b-url"),
+        model: val("b-model"),
         vision_model: val("b-vision"), audio_model: val("b-audio"), api_key: val("b-key"),
       },
     });

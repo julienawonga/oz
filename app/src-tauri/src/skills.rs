@@ -329,7 +329,7 @@ async fn reflect(app: &AppHandle, skills: &[Skill]) -> Result<Option<String>, St
     if cfg.api_key.is_empty() {
         return Err("pas de clé Gemini".into());
     }
-    let model = if cfg.provider == "gemini" { cfg.model.clone() } else { "gemini-3.8-flash".into() };
+    let model = cfg.model.clone();
     let existing: Vec<String> = skills.iter().map(|s| format!("[{}] {}", s.name, s.description)).collect();
     let ctx = format!(
         "Skills existants :\n{}\n\nJournal récent :\n{}",

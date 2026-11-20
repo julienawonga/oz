@@ -182,8 +182,7 @@ async fn judge(app: &AppHandle, signal: &Signal) -> Result<serde_json::Value, St
     if cfg.api_key.is_empty() {
         return Err("pas de clé Gemini".into());
     }
-    // le modèle de conversation s'il est Gemini, sinon le modèle par défaut
-    let model = if cfg.provider == "gemini" { cfg.model.clone() } else { "gemini-3.8-flash".into() };
+    let model = cfg.model.clone();
     let history: Vec<String> = app
         .state::<BrainState>()
         .history
