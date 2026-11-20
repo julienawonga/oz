@@ -18,7 +18,6 @@
 </p>
 <p align="center">
   <img src="https://img.shields.io/badge/Gemini-Live%20%2B%20tools-8E75B2?style=flat-square&logo=googlegemini&logoColor=white" alt="Gemini Live + tools">
-  <img src="https://img.shields.io/badge/Ollama-local-000000?style=flat-square&logo=ollama&logoColor=white" alt="Ollama">
   <img src="https://img.shields.io/badge/permissions-enforced%20in%20Rust-0284c7?style=flat-square" alt="Permissions enforced in Rust">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" alt="MIT license"></a>
 </p>
@@ -109,6 +108,14 @@ Details: [docs/permissions.md](docs/permissions.md).
 
 ## 🚀 Quick start
 
+### Install
+
+1. Download `Oz_x.y.z_x64-setup.exe` from the [latest release](https://github.com/julienawonga/oz/releases/latest) and run it.
+2. The installer is not code-signed yet, so Windows SmartScreen may say *"Windows protected your PC"*: click **More info**, then **Run anyway**.
+3. Get a Gemini API key at [Google AI Studio](https://aistudio.google.com/apikey), open the admin panel, **Models** tab, and paste it. The key is stored in the Windows Credential Manager, never in a file.
+
+### Build from source
+
 **Requirements:** Windows 10 or 11, [Node.js](https://nodejs.org), [Rust](https://rustup.rs) (stable) and the [Tauri 2 prerequisites for Windows](https://v2.tauri.app/start/prerequisites/).
 
 ```bash
@@ -118,7 +125,7 @@ npm install
 npm run tauri dev
 ```
 
-On first launch, open the admin panel, **Models** tab, pick the brain and enter your Gemini key.
+On first launch, open the admin panel, **Models** tab, and enter your Gemini key.
 
 > [!TIP]
 > To test the voice without the app: `cd app/src-tauri && cargo run --example voice_probe [file.wav]`.
@@ -128,7 +135,6 @@ On first launch, open the admin panel, **Models** tab, pick the brain and enter 
 | Provider | Chat | Tools | Voice | Vision |
 |---|:---:|:---:|:---:|:---:|
 | **Gemini** | ✅ streaming | ✅ function calling | ✅ Gemini Live | ✅ |
-| **Ollama** (local) | ✅ streaming | 🚧 coming soon | — | — |
 
 ## 🏗️ Architecture
 
@@ -176,7 +182,6 @@ cd .. && npx tsc --noEmit          # front-end type check
 - [ ] **Standard skills** ([agentskills.io](https://agentskills.io), Hermes-compatible): import community skills
 - [ ] **Hooks** for modules: start and end of a conversation, before a reply
 - [ ] Oz reacts on its own (an emotion, a remark) to what it sees or hears
-- [ ] Tools for local models (Ollama)
 
 **Later**
 

@@ -1,0 +1,48 @@
+name: Release
+
+# Builds the Windows installer when a version tag is pushed (e.g. v0.1.0)
+# and attaches it to a draft GitHub release, to review before publishing.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri -> target
+
+      - name: Install frontend dependencies
+        working-directory: app
+        run: npm ci
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: app
+          tagName: ${{ github.ref_name }}
+          releaseName: Oz ${{ github.ref_name }}
+          releaseBody: |
+            Windows installer for Oz. See the README for setup (Gemini key in the Models tab).
+
+            The installer is not code-signed yet: Windows SmartScreen may show
+            "Windows protected your PC". Click "More info", then "Run anyway".
+          releaseDraft: true
+          prerelease: false
